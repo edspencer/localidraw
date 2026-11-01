@@ -8,6 +8,7 @@
 
 ## Checklist
 
+- [ ] User-facing change? It has a changeset (see CONTRIBUTING.md "Changesets"). Not user-facing? No changeset needed.
 - [ ] UI change? Screenshots below, in light and dark: before, after, and a nearby view that shouldn't have changed.
 - [ ] Opening a canvas still never writes it, and nothing written on disk can be lost (CONTRIBUTING.md "The rules").
 
