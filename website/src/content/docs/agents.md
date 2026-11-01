@@ -77,7 +77,9 @@ const elements = convertToExcalidrawElements([
 It handles labels, bindings and text measurement (when it runs where fonts can be measured, as in a browser), and the
 skeleton format is [in Excalidraw's docs](https://docs.excalidraw.com/docs/@excalidraw/excalidraw/api/excalidraw-element-skeleton).
 Its output still needs the rules above: drop the `index` it numbers from `"a0"` (it doesn't know the file's), and bump
-the `version` of any existing element you bind to.
+the `version` of any existing element you bind to. And give a straight arrow or line its `points`: a `width` or
+`height` of `0` counts as unset and becomes 100, so `{ type: "arrow", width: 0, height: 70 }` comes out diagonal, while
+`points: [[0, 0], [0, 70]]` is straight down.
 
 Editing an element by hand is fine too: change the fields, then bump `version`. Copying an existing element as a
 template, as below, is the easiest way to get every field right.
