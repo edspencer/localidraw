@@ -48,6 +48,8 @@
     "test:e2e": "npm run build:web && playwright test",
     "test:e2e:snapshots": "node scripts/e2e-docker.mjs",
     "smoke:pack": "node scripts/smoke-pack.mjs",
+    "docs:media:demo": "npm run build:web && node --import tsx tools/docs-media/make-demo.ts",
+    "docs:media:hero": "npm run build:web && node --import tsx tools/docs-media/hero.ts",
     "prepack": "npm run build",
     "changeset": "changeset",
     "changeset:version": "changeset version && npm install --package-lock-only --ignore-scripts"

@@ -18,5 +18,5 @@
       "@excalidraw/utils/*": ["./node_modules/@excalidraw/excalidraw/dist/types/utils/*"]
     }
   },
-  "include": ["server", "web", "test", "e2e", "playwright.config.ts"]
+  "include": ["server", "web", "test", "e2e", "tools", "playwright.config.ts"]
 }

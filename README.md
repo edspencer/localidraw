@@ -9,6 +9,11 @@ npx localidraw ~/notes    # or any folder
 
 Then open http://localhost:3729/.
 
+![Drawing a box on a canvas while a coding agent adds another to the same file: the agent's change appears, and the drawing is kept](https://raw.githubusercontent.com/edspencer/localidraw/main/docs/media/hero.gif)
+
+<sub>Drawn live in Localidraw, while a script edits the file as an agent would. The pointer and the captions are added
+for the recording ([tools/docs-media](tools/docs-media/README.md)).</sub>
+
 Localidraw serves the real Excalidraw editor, full screen in your browser, on the drawings in a folder on your
 machine. There's no export step and no cloud copy: what you draw is saved straight to the file.
 
