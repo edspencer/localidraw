@@ -2,7 +2,7 @@
 // and checks that it serves the page, the projects and a canvas, as a user's `npx localidraw` would. It also holds
 // the package to a size budget.
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,21 +17,33 @@ const sizeOf = (path) => statSync(path).isDirectory() ? readdirSync(path).reduce
 const root = join(import.meta.dirname, "..");
 const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const tmp = mkdtempSync(join(tmpdir(), "localidraw-smoke-"));
+const windows = process.platform === "win32";
+// npm through its own CLI when this runs as an npm script (npm_execpath), so no shell is needed: on Windows, npm is
+// npm.cmd, which execFile can't start without one. Run directly, it falls back to the shell's npm.
+const npm = (args, opts) => process.env.npm_execpath
+  ? execFileSync(process.execPath, [process.env.npm_execpath, ...args], opts)
+  : execFileSync(windows ? "npm.cmd" : "npm", args, { ...opts, shell: windows });
 const fail = (msg) => { console.error(`smoke: ${msg}`); process.exitCode = 1; };
 let child;
 try {
-  const tarball = execFileSync("npm", ["pack", "--silent", "--pack-destination", tmp], { cwd: root, encoding: "utf8" }).trim().split("\n").pop();
-  execFileSync("npm", ["install", "--silent", "--prefix", join(tmp, "prefix"), join(tmp, tarball)], { stdio: "inherit" });
+  const tarball = npm(["pack", "--silent", "--pack-destination", tmp], { cwd: root, encoding: "utf8" }).trim().split(/\r?\n/).pop();
+  npm(["install", "--silent", "--prefix", join(tmp, "prefix"), join(tmp, tarball)], { stdio: "inherit" });
   const packed = statSync(join(tmp, tarball)).size;
   const unpacked = sizeOf(join(tmp, "prefix/node_modules/localidraw"));
   if (packed > MAX_PACKED) fail(`the package is ${mb(packed)} packed, over its ${mb(MAX_PACKED)} budget`);
   if (unpacked > MAX_UNPACKED) fail(`the package is ${mb(unpacked)} unpacked, over its ${mb(MAX_UNPACKED)} budget`);
   const folder = join(tmp, "drawings");
-  execFileSync("mkdir", ["-p", join(folder, "project")]);
+  mkdirSync(join(folder, "project"), { recursive: true });
   writeFileSync(join(folder, "project/one.excalidraw"), JSON.stringify({ type: "excalidraw", version: 2, elements: [], appState: {}, files: {} }));
-  const bin = join(tmp, "prefix/node_modules/.bin/localidraw");
+  // The installed command, as a user's shell finds it. On Windows that's a .cmd shim, which needs a shell to start (and
+  // killing the shell would leave the server running), so there the check is that the shim is there, and the script
+  // it points at is run with node.
+  const bin = join(tmp, "prefix/node_modules/.bin", windows ? "localidraw.cmd" : "localidraw");
+  if (!existsSync(bin)) throw new Error(`npm didn't install the command (${bin})`);
+  const installed = join(tmp, "prefix/node_modules/localidraw");
+  const [cmd, ...cmdArgs] = windows ? [process.execPath, join(installed, JSON.parse(readFileSync(join(installed, "package.json"), "utf8")).bin.localidraw)] : [bin];
   const port = String(20000 + Math.floor(Math.random() * 20000));
-  child = spawn(bin, [folder, "--port", port], { stdio: ["ignore", "pipe", "inherit"] });
+  child = spawn(cmd, [...cmdArgs, folder, "--port", port], { stdio: ["ignore", "pipe", "inherit"] });
   const started = await new Promise((ok) => {
     child.stdout.on("data", (d) => { if (String(d).includes(`localhost:${port}`)) ok(true); });
     child.on("exit", () => ok(false));
@@ -57,6 +69,7 @@ try {
 } catch (err) {
   fail(err.message);
 } finally {
-  child?.kill();
-  rmSync(tmp, { recursive: true, force: true });
+  // Windows won't remove a folder a running process still has open, so wait for the server to exit first.
+  if (child && child.exitCode === null && child.signalCode === null) await new Promise((done) => { child.once("exit", done); child.kill(); });
+  rmSync(tmp, { recursive: true, force: true, maxRetries: 5 });
 }
