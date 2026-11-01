@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A new push to a PR cancels that PR's older run. Pushes to main get a group per commit, so they never cancel each
+# other: release.yml's verify-ci job waits for the CI run on the exact commit it's releasing, and a cancelled run
+# there would block the release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      # Packs the package, installs the tarball into a temp prefix and runs it as a user would (scripts/smoke-pack.mjs).
+      - name: Smoke-test the npm package
+        run: npm run smoke:pack
+
+  # Windows is best effort for now: paths, the recursive fs.watch and `explorer` for --open are untested there
+  # (TODO.md, "Compatibility and platforms"). This leg reports what fails without blocking a merge: it's
+  # continue-on-error, and ci-passed doesn't wait for it.
+  windows:
+    name: Test (Node 24, windows-latest, best effort)
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests
+        if: ${{ !cancelled() }}
+        run: npm test
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: npm run build
+      - name: Smoke-test the npm package
+        if: ${{ !cancelled() }}
+        run: npm run smoke:pack
+
+  # One stable check name to require in branch rules, so the matrix can change without editing them.
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every job to have passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: ${RESULTS}"
+          for r in ${RESULTS}; do
+            if [ "${r}" != "success" ]; then
+              echo "::error::a required job concluded '${r}'"
+              exit 1
+            fi
+          done

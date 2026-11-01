@@ -1,0 +1,35 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    ignore:
+      # Pinned on purpose: 0.18.1 is the version the VS Code extension uses, so files round-trip between them
+      # (AGENTS.md). Upgrade it by hand, after checking the extension still opens what we save.
+      - dependency-name: "@excalidraw/excalidraw"
+      # React stays at 18: Excalidraw 0.18's bundled Radix packages declare React 18 or below.
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+    groups:
+      # Localidraw has no runtime dependencies: everything here is build and test tooling, or a library bundled
+      # into dist/web at build time.
+      development:
+        dependency-type: development
+        update-types: [minor, patch]
+    # Majors come as one PR each, so each gets read.
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
