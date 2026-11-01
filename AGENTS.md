@@ -15,8 +15,13 @@ For agents (and people) developing Localidraw itself.
 - **Only canvases inside the folder.** Every path from the page goes through `resolveInRoot` in `server/files.ts`:
   inside the root, not in a dot-folder or `node_modules`, and a `.excalidraw` file. The server creates and saves
   canvases; it never deletes or renames anything. Renames and deletes are the user's, in their shell or git.
-- **The server only binds 127.0.0.1** and refuses non-localhost `Host` and `Origin` headers (`server/security.ts`).
-  Don't add a way around that (no `--host`).
+- **Localhost by default; hosting is opt-in, and never without allowed hosts.** The server binds 127.0.0.1 unless
+  `--host` says otherwise, and `startServer` and the CLI both refuse a non-loopback `--host` without at least one
+  `--allowed-host`. Every request goes through `guard` in `server/security.ts`: the `Host` must be loopback or an
+  allowed host, an `Origin` must be `http(s)://` plus that same host, the API refuses cross-site and same-site
+  `Sec-Fetch-Site`, and writes must be `application/json` (415 otherwise). Localidraw has no login: authentication is
+  the reverse proxy's job, and the docs and the startup output say so. Don't add a route around `guard`, a wildcard
+  allowed host, or CORS headers.
 - **The default port is one constant**, `DEFAULT_PORT` in `server/port.ts`: 3729, "DRAW" on a phone keypad (not LOCA, 5622, which is Local Review's). The
   README and the docs site (`website/src/site.mjs`) say it too; change them together (`test/docs.test.ts` checks).
 - **The browser keeps preferences, the files keep drawings.** Viewport, theme and sidebar state live in
@@ -30,8 +35,10 @@ For agents (and people) developing Localidraw itself.
 
 ## Layout
 
-- `server/`: the CLI (`cli.ts`), the HTTP server and its events (`server.ts`), the file rules (`files.ts`),
-  `security.ts` and `port.ts`. Run from source by `tsx` in tests; compiled to `dist/server` for the package.
+- `server/`: the CLI (`cli.ts`), the HTTP server, its events and `--poll` (`server.ts`), sending the page's files
+  with caching and compression (`static.ts`), the file rules (`files.ts`), `security.ts`, `port.ts` and
+  `package.ts` (the version, and where the built page is). Run from source by `tsx` in tests; compiled to
+  `dist/server` for the package.
 - `web/`: the page. `App.tsx` (the open canvas, the projects, the server's events), `CanvasView.tsx` (Excalidraw on
   one file: load, autosave, merge), `CanvasesTab.tsx` (the sidebar tab), `merge.ts` (pure, tested in Node),
   `styles.css`. Bundled by `scripts/build-web.mjs` (esbuild) into `dist/web`, with Excalidraw's fonts.

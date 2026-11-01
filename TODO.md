@@ -14,20 +14,12 @@ Roughly in priority order within each section. Strike items out, or delete them,
 
 ## Hosting (a Docker image)
 
-Packaging is easy (Node 22, about 22 MB of built files, no runtime dependencies, canvases on a mounted volume). But
-today the server is deliberately for one person on their own machine, so a container can't be reached and mustn't
-be exposed. Needed:
+The server side is done: `--host` and `--allowed-host`, with authentication left to the reverse proxy, JSON-only
+writes, `/api/health`, caching and compression, `--poll` for network mounts, and the limits documented on the docs
+site's Self-hosting page. Left:
 
-- [ ] **Decide the security model first**: auth built in (a shared token, or more), or documented as the reverse
-  proxy's job (basic auth, SSO, Tailscale, Cloudflare Access).
-- [ ] **`--host`** to listen beyond 127.0.0.1, and **an allowed-hosts list** for the `Host`/`Origin` check in
-  `server/security.ts` (which today allows only localhost, against DNS rebinding). Then rewrite the "localhost only"
-  rule in `AGENTS.md` and the README to say what holds when hosted.
-- [ ] **The Dockerfile** (and maybe a compose file): a volume for the canvases, a non-root user, a health check (a
-  `/healthz` route).
-- [ ] **Document the limits**: one instance per folder (the change events come from the one server watching it),
-  changes arrive on save rather than live (there's no collaboration server), and file watching through Docker
-  Desktop bind mounts from macOS can miss events.
+- [ ] **The Dockerfile and a compose file**: a volume for the canvases, a non-root user, a health check on
+  `/api/health`, and image jobs in `release.yml`.
 
 ## The editor
 

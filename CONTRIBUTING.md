@@ -57,8 +57,9 @@ useful the rest of it is. [AGENTS.md](AGENTS.md) has the details.
   the file moved on; the page merges and saves again. Writes are atomic. Don't add a write path around either.
 - **Only canvases inside the folder.** Every path from the page goes through `resolveInRoot` in `server/files.ts`.
   The server creates and saves canvases; it never deletes or renames anything.
-- **Localhost only.** The server binds 127.0.0.1 and refuses non-localhost `Host` and `Origin` headers
-  (`server/security.ts`).
+- **Localhost unless you host it, and then only by name.** The server binds 127.0.0.1 by default. A `--host` beyond
+  loopback refuses to start without `--allowed-host`, and every request's `Host` and `Origin` must be loopback or an
+  allowed host (`server/security.ts`). It has no login; when hosted, authentication is the reverse proxy's job.
 - **It must look like Excalidraw.** What Localidraw adds to the UI uses Excalidraw's chrome, never its hand-drawn
   style ([docs/AESTHETIC.md](docs/AESTHETIC.md)).
 - **Files stay compatible.** Excalidraw is pinned at 0.18.1, the version the VS Code extension uses. Don't upgrade it

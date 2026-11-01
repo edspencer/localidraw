@@ -1,8 +1,10 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { request } from "node:http";
+import { request, type IncomingHttpHeaders } from "node:http";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
+import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import { join } from "node:path";
 import { contentHash, listProjects, resolveInRoot, writeAtomic } from "../server/files.ts";
 import { startServer, type Running } from "../server/server.ts";
@@ -29,16 +31,21 @@ before(async () => {
 });
 after(async () => { await app.close(); rmSync(join(root, ".."), { recursive: true, force: true }); });
 
-/** A request with full control of the headers (fetch won't let a test set Host or Origin). */
-function call(method: string, path: string, opts: { body?: string; headers?: Record<string, string> } = {}) {
-  const { port } = new URL(app.url);
-  return new Promise<{ status: number; json: any }>((ok, fail) => {
-    const req = request({ host: "127.0.0.1", port, method, path, headers: { host: `localhost:${port}`, ...opts.headers } }, (res) => {
-      let data = "";
-      res.on("data", (c) => (data += c)).on("end", () => {
-        let json: any = data;
-        try { json = JSON.parse(data); } catch {}
-        ok({ status: res.statusCode!, json });
+/**
+ * A request with full control of the headers (fetch won't let a test set Host or Origin). A body is sent as JSON
+ * unless the headers say otherwise.
+ */
+function call(method: string, path: string, opts: { body?: string; headers?: Record<string, string>; to?: Running } = {}) {
+  const { port } = new URL((opts.to ?? app).url);
+  const type = opts.body === undefined ? {} : { "content-type": "application/json" };
+  return new Promise<{ status: number; json: any; headers: IncomingHttpHeaders; raw: Buffer }>((ok, fail) => {
+    const req = request({ host: "127.0.0.1", port, method, path, headers: { host: `localhost:${port}`, ...type, ...opts.headers } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c) => chunks.push(c)).on("end", () => {
+        const raw = Buffer.concat(chunks);
+        let json: any = raw.toString("utf8");
+        try { json = JSON.parse(json); } catch {}
+        ok({ status: res.statusCode!, json, headers: res.headers, raw });
       });
     });
     req.on("error", fail);
@@ -126,8 +133,8 @@ test("a path starting with // is a 404, and the server carries on", async () => 
  * Resolves once the server announces `rel` with the content `write` puts there. The watcher can take a moment to
  * start (FSEvents on macOS), so it writes every 300 ms until the change is seen, up to 5 s.
  */
-function announced(rel: string, content: string, write: () => void) {
-  const { port } = new URL(app.url);
+function announced(rel: string, content: string, write: () => void, to = app) {
+  const { port } = new URL(to.url);
   const events: any[] = [];
   const isThisWrite = (e: any) => e.type === "changed" && e.path === rel && e.hash === contentHash(content);
   return new Promise<void>((ok, fail) => {
@@ -164,4 +171,149 @@ test("a change on disk is still announced after a save renamed a new file over i
 test("canvases in a folder made after the server started are watched", async () => {
   mkdirSync(join(root, "later/deeper"), { recursive: true });
   await announced("later/deeper/c.excalidraw", scene(8), () => writeFileSync(join(root, "later/deeper/c.excalidraw"), scene(8)));
+});
+
+test("writes must be JSON (415), so no page can send one cross-site without a preflight", async () => {
+  const before = readFileSync(join(root, "top.excalidraw"), "utf8");
+  const { json: loaded } = await call("GET", "/api/canvas?path=top.excalidraw");
+  for (const type of [undefined, "text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"]) {
+    const headers: Record<string, string> = { "x-base-hash": loaded.hash };
+    if (type) headers["content-type"] = type;
+    const put = await call("PUT", "/api/canvas?path=top.excalidraw", { body: scene(4), headers: type ? headers : { ...headers, "content-type": "" } });
+    assert.equal(put.status, 415, String(type));
+    assert.equal((await call("POST", "/api/canvases", { body: JSON.stringify({ path: "typed" }), headers: { "content-type": type ?? "" } })).status, 415);
+  }
+  assert.equal(readFileSync(join(root, "top.excalidraw"), "utf8"), before);
+  assert.equal((await call("POST", "/api/canvases", { body: JSON.stringify({ path: "typed" }), headers: { "content-type": "application/json; charset=utf-8" } })).status, 201);
+});
+
+test("a cross-site or same-site API call is refused, whatever its Origin", async () => {
+  for (const site of ["cross-site", "same-site"]) {
+    assert.equal((await call("GET", "/api/projects", { headers: { "sec-fetch-site": site } })).status, 403, site);
+  }
+  for (const site of ["same-origin", "none"]) {
+    assert.equal((await call("GET", "/api/projects", { headers: { "sec-fetch-site": site } })).status, 200, site);
+  }
+});
+
+test("/api/health says it's up, and which version", async () => {
+  const r = await call("GET", "/api/health");
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json, { ok: true, version: JSON.parse(readFileSync(join(import.meta.dirname, "../package.json"), "utf8")).version });
+});
+
+test("hashed files are cached for good; the page and the rest are revalidated with an ETag", async () => {
+  mkdirSync(join(web, "chunks"), { recursive: true });
+  writeFileSync(join(web, "chunks/chunk-O7ESXKUI.js"), "export {};");
+  writeFileSync(join(web, "Font-0123456789abcdef0123456789abcdef.woff2"), "font");
+  writeFileSync(join(web, "favicon.svg"), "<svg/>");
+  for (const path of ["/static/chunks/chunk-O7ESXKUI.js", "/static/Font-0123456789abcdef0123456789abcdef.woff2"]) {
+    assert.equal((await call("GET", path)).headers["cache-control"], "public, max-age=31536000, immutable", path);
+  }
+  for (const path of ["/", "/static/favicon.svg"]) {
+    const first = await call("GET", path);
+    assert.equal(first.status, 200, path);
+    assert.equal(first.headers["cache-control"], "no-cache", path);
+    assert.ok(first.headers.etag, path);
+    const again = await call("GET", path, { headers: { "if-none-match": first.headers.etag! } });
+    assert.equal(again.status, 304, path);
+    assert.equal(again.raw.length, 0, path);
+  }
+  writeFileSync(join(web, "favicon.svg"), "<svg>changed</svg>");
+  const old = (await call("GET", "/static/favicon.svg")).headers.etag;
+  assert.notEqual(old, undefined);
+  assert.equal((await call("GET", "/static/favicon.svg")).raw.toString(), "<svg>changed</svg>");
+  assert.equal((await call("GET", "/static/%E0%A4%A")).status, 400, "a bad escape is a 400, not a crash");
+});
+
+test("text is compressed with brotli or gzip when the browser takes it, and the events never are", async () => {
+  writeFileSync(join(web, "big.js"), `export const x = ${JSON.stringify("draw ".repeat(5000))};`);
+  const br = await call("GET", "/static/big.js", { headers: { "accept-encoding": "gzip, deflate, br" } });
+  assert.equal(br.headers["content-encoding"], "br");
+  assert.equal(brotliDecompressSync(br.raw).toString(), readFileSync(join(web, "big.js"), "utf8"));
+  assert.match(String(br.headers.vary), /accept-encoding/);
+  const gz = await call("GET", "/static/big.js", { headers: { "accept-encoding": "gzip, br;q=0" } });
+  assert.equal(gz.headers["content-encoding"], "gzip");
+  assert.equal(gunzipSync(gz.raw).toString(), readFileSync(join(web, "big.js"), "utf8"));
+  const plain = await call("GET", "/static/big.js");
+  assert.equal(plain.headers["content-encoding"], undefined);
+  // The API too: a canvas is JSON, and compresses well.
+  writeFileSync(join(root, "team/big.excalidraw"), scene(400));
+  const canvas = await call("GET", "/api/canvas?path=team/big.excalidraw", { headers: { "accept-encoding": "gzip" } });
+  assert.equal(canvas.headers["content-encoding"], "gzip");
+  assert.equal(JSON.parse(gunzipSync(canvas.raw).toString()).scene.elements.length, 400);
+  // Fonts are compressed already.
+  writeFileSync(join(web, "Big-0123456789abcdef0123456789abcdef.woff2"), Buffer.alloc(4096));
+  assert.equal((await call("GET", "/static/Big-0123456789abcdef0123456789abcdef.woff2", { headers: { "accept-encoding": "br" } })).headers["content-encoding"], undefined);
+
+  const { port } = new URL(app.url);
+  const headers = await new Promise<IncomingHttpHeaders>((ok, fail) => {
+    const req = request({ host: "127.0.0.1", port, path: "/api/events", headers: { host: `localhost:${port}`, "accept-encoding": "br, gzip" } }, (res) => { ok(res.headers); req.destroy(); });
+    req.on("error", fail).end();
+  });
+  assert.equal(headers["content-encoding"], undefined);
+  assert.equal(headers["x-accel-buffering"], "no");
+});
+
+test("with allowed hosts, it answers to those names too, over http or https, and to no others", async () => {
+  const hosted = await startServer({ root, port: 0, webDir: web, allowedHosts: ["draw.example", "[fd00::1]"] });
+  try {
+    const at = (host: string, extra: Record<string, string> = {}) => call("GET", "/api/projects", { to: hosted, headers: { host, ...extra } });
+    for (const host of ["draw.example", "DRAW.example:443", "draw.example:3729", "[fd00::1]:3729", `localhost:${new URL(hosted.url).port}`]) {
+      assert.equal((await at(host)).status, 200, host);
+    }
+    for (const host of ["evil.example", "draw.example.evil.example", "sub.draw.example", "[fd00::1]evil"]) {
+      const r = await at(host);
+      assert.equal(r.status, 403, host);
+      assert.match(r.raw.toString(), /--allowed-host/, host);
+    }
+    // The Origin must be the same host the request came to, by http or https.
+    const put = (host: string, origin: string) => call("PUT", "/api/canvas?path=team/alpha/a.excalidraw", { to: hosted, body: scene(1), headers: { host, origin, "x-base-hash": "stale" } });
+    for (const [host, origin] of [["draw.example", "https://draw.example"], ["draw.example:443", "https://draw.example"], ["draw.example:3729", "http://draw.example:3729"]]) {
+      assert.equal((await put(host, origin)).status, 409, `${host} from ${origin}`); // let through, then refused as stale
+    }
+    for (const [host, origin] of [["draw.example", "https://evil.example"], ["draw.example", "https://draw.example:8443"], ["draw.example", "null"], ["draw.example", "ftp://draw.example"], ["draw.example:3729", "http://localhost:3729"]]) {
+      assert.equal((await put(host, origin)).status, 403, `${host} from ${origin}`);
+    }
+  } finally {
+    await hosted.close();
+  }
+});
+
+test("it won't listen beyond loopback without an allowed host", async () => {
+  for (const host of ["0.0.0.0", "::", "192.168.1.5"]) {
+    await assert.rejects(startServer({ root, port: 0, webDir: web, host }), /needs at least one allowed host/, host);
+  }
+  const loop = await startServer({ root, port: 0, webDir: web, host: "127.0.0.1" });
+  await loop.close();
+});
+
+test("with --poll, changes are found by checking the files, renamed-over and in new folders alike", async () => {
+  const polled = await startServer({ root, port: 0, webDir: web, poll: 100 });
+  try {
+    await announced("team/alpha/a.excalidraw", scene(11), () => writeFileSync(join(root, "team/alpha/a.excalidraw"), scene(11)), polled);
+    await announced("team/alpha/a.excalidraw", scene(12), () => writeAtomic(join(root, "team/alpha/a.excalidraw"), scene(12)), polled);
+    mkdirSync(join(root, "polled/new"), { recursive: true });
+    await announced("polled/new/d.excalidraw", scene(13), () => writeFileSync(join(root, "polled/new/d.excalidraw"), scene(13)), polled);
+  } finally {
+    await polled.close();
+  }
+});
+
+test("a request with no Host at all is refused", async () => {
+  const { port } = new URL(app.url);
+  const reply = await new Promise<string>((ok, fail) => {
+    let data = "";
+    const socket = connect(Number(port), "127.0.0.1", () => socket.write("GET /api/projects HTTP/1.0\r\n\r\n"));
+    socket.on("data", (c) => (data += c)).on("end", () => ok(data)).on("error", fail);
+  });
+  assert.match(reply, /^HTTP\/1\.1 403 /);
+});
+
+test("HEAD answers like GET, without the body", async () => {
+  for (const path of ["/", "/static/favicon.svg", "/api/health"]) {
+    const r = await call("HEAD", path);
+    assert.equal(r.status, 200, path);
+    assert.equal(r.raw.length, 0, path);
+  }
 });
