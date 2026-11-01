@@ -21,7 +21,7 @@ machine. There's no export step and no cloud copy: what you draw is saved straig
   and each file is a canvas. They're listed in a **Canvases** tab in Excalidraw's own sidebar, next to the Library,
   with a filter and **New canvas**, and each canvas can be renamed, moved or deleted from there (a delete goes to a
   trash folder, and can be undone). One canvas per diagram, rather than one endless board.
-- **Saved as you draw.** Each canvas is written back to its file about a second after you stop. Opening a canvas, or
+- **Saved as you draw.** Each canvas is written back to its file under a second after you stop. Opening a canvas, or
   moving around it, never writes it, so browsing leaves `git status` clean.
 - **Draw alongside your coding agent.** When something else changes a file (an agent editing the JSON, a
   `git pull`), the canvas updates within a second. The change is merged per element with what you've drawn since,

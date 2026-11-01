@@ -91,4 +91,9 @@ near-black text.
 - **The save status** ("Saved", "Saving…", "Updated from disk") sits in Excalidraw's footer, beside the undo
   buttons, in small gray text, as quiet as the rest of the chrome.
 - **A notice** that an edit lost to a change on disk sits beside it, as a small island (`--island-bg-color`,
-  `--shadow-island`), with a violet text button (**Show**) and a gray close icon. It stays until it's dismissed.
+  `--shadow-island`), with a violet text button (**Show**) and a gray close icon. It stays until it's dismissed. The
+  other footer notices are the same island: a canvas deleted or moved on disk (**Save it again**), and Localidraw
+  not running. A canvas deleted from the sidebar is reported in the tab itself, with **Undo**.
+- **A canvas row's menu** (⋯, or a right-click) is Excalidraw's own dropdown menu (`dropdown-menu` classes), with
+  "Rename or move" and "Delete". Renaming or moving edits the row in place in the `.ExcTextField` style, and Delete
+  asks in the row.

@@ -17,7 +17,7 @@ clean ([docs/AESTHETIC.md](../docs/AESTHETIC.md)), and a logo is chrome.
 | `favicon.svg` | A copy of `mark.svg`, also copied to `web/favicon.svg` for the app | `<link rel="icon" type="image/svg+xml">` |
 | `favicon.ico` | 16, 32 and 48px PNGs in one ICO | `<link rel="icon" sizes="32x32">`, old browsers, `/favicon.ico` |
 | `apple-touch-icon.png` | 180×180, full-bleed (iOS rounds the corners) | `<link rel="apple-touch-icon">` |
-| `icon-192.png`, `icon-512.png` | Web manifest icons | `manifest.webmanifest` |
+| `icon-192.png`, `icon-512.png` | Web manifest icons | a web manifest, if one is added (none ships yet) |
 | `og-image.png` | 1200×630 card | `og:image` / `twitter:image` on the docs site |
 | `social-preview.png` | 1280×640 card | GitHub repo Settings → Social preview |
 | `generate.mjs` | Builds every file above except `mark.svg` | See "Regenerating" |

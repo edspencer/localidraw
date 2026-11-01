@@ -35,8 +35,34 @@ Roughly in priority order within each section. Strike items out, or delete them,
 
 - [ ] **Excalidraw upgrades.** Pinned at 0.18.1, the version the VS Code extension uses. Before moving, go through
   [AGENTS.md's checklist](AGENTS.md#upgrading-excalidraw).
-- [ ] **Other formats?** `.excalidraw.svg` and `.excalidraw.png` (a scene embedded in an image, as the VS Code
-  extension and Obsidian write). (`library.excalidrawlib` at the root is the shared Library.)
+- [ ] **Other formats: `.excalidraw.svg`, `.excalidraw.png`, other `.excalidrawlib` files.** A design note, not built:
+  none of it is cheap, and every save path it adds has to keep "nothing written on disk is lost".
+  - **How the scene is embedded** (Excalidraw 0.18.1, `data/encode.ts` and `data/image.ts`). Both hold the scene's
+    JSON (`serializeAsJSON`), deflated, as `{ version: "1", encoding: "bstring", compressed: true, encoded }`:
+    - **SVG**: base64 of that JSON, in the `<metadata>` between `<!-- payload-start -->` and `<!-- payload-end -->`,
+      after `<!-- payload-type:application/vnd.excalidraw+json -->`. Made by `exportToSvg` with `exportEmbedScene`.
+    - **PNG**: a `tEXt` chunk with the keyword `application/vnd.excalidraw+json` and that JSON as its text, put just
+      before `IEND`. Made by `exportToBlob` with `exportEmbedScene`.
+    - Reading either needs nothing beyond Node (`node:zlib`'s `inflateSync`, and a PNG chunk walk), so the server
+      can list them, validate them (the 422 path) and hand the page the scene, with the hash taken over the file's
+      bytes as now. Excalidraw's own `loadFromBlob` reads both in the page too.
+  - **Read-only first.** List them in the sidebar (marked as images), open them with `viewModeEnabled`, and offer
+    "Save as a .excalidraw" (a new file, through the existing create path). No new write path; `resolveInRoot` would
+    accept the two extensions for reads only. That's the cheap, safe step if anyone asks for it.
+  - **Editable is the expensive part.** Every save would re-render the image in the page (`exportToSvg` embeds fonts;
+    `exportToBlob` rasterises the whole scene), which is slow for a big canvas at autosave's pace, and sends a body
+    the server can't check is a scene without decoding it. It needs: `resolveInRoot`, rename and the trash to keep
+    the double extension; the 409 merge to decode the file on disk; the watcher and `--poll` to match the new
+    extensions; `writeAtomic` of binary content (writes are JSON-only, so the page would send `{ scene, image }`
+    with the image base64'd, or the server would render, which it can't without a browser); and the VS Code
+    extension to open the result. Also: the export's settings (padding, background, dark mode, scale) aren't in the
+    scene, so a re-render can change how an image someone embedded in a README looks.
+  - **Other `.excalidrawlib` files** (a downloaded library, not the root's `library.excalidrawlib`): they're
+    Libraries, not canvases, so the natural feature is "Add to Library" (Excalidraw's `importLibrary` /
+    `updateLibrary` with `merge: true`) from the sidebar, which writes only the Library, by its existing path.
+    Editing one as a document isn't something Excalidraw does.
+  - **Obsidian's `.excalidraw.md`** is a different format (Markdown with a compressed-JSON block, plus its own text
+    and links); out of scope.
 - [ ] **`npm audit`**: two findings left in Excalidraw's dependencies (`nanoid` 4 and `katex`, through Mermaid), neither
   reachable as Localidraw uses them, and neither fixable without moving Excalidraw. Triaged in
   [SECURITY.md](SECURITY.md#npm-audit); look again with each Excalidraw upgrade.

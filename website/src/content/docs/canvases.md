@@ -76,6 +76,7 @@ Next to the undo buttons, in small grey text:
 | **Saved** *(time)* | The file has everything on screen. |
 | **Updated from disk** | The file changed on disk and the change was merged in. See [Saving and merging](/saving-and-merging/). |
 | **Not saved:** *(reason)* | The save failed. It keeps trying, and saves once it can. |
+| **Not saved** | The file was deleted or moved on disk. A notice says so, and **Save it again** writes it back ([Saving and merging](/saving-and-merging/#the-open-canvas-and-git)). |
 
 <kbd>Ctrl</kbd>+<kbd>S</kbd> (<kbd>⌘</kbd>+<kbd>S</kbd> on a Mac) saves at once rather than waiting.
 
