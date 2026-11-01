@@ -18,6 +18,10 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/react-dom"
         update-types: ["version-update:semver-major"]
+      # @types/node tracks the oldest Node we support (engines: >=22), so a newer major would let code use APIs
+      # that Node 22 doesn't have. Move it by hand when the floor moves.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       # Localidraw has no runtime dependencies: everything here is build and test tooling, or a library bundled
       # into dist/web at build time.
