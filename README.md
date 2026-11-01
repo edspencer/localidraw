@@ -60,7 +60,7 @@ For tools that edit canvases: bump an element's `version` when you change it (Ex
 ```sh
 npm install
 npm start            # build, then run on this checkout's folder (npm start -- ~/some/folder)
-npm test             # node:test: the merge, the file rules and the server API
+npm test             # node:test: the merge, the file rules, the server API and the docs
 npm run typecheck
 npm run smoke:pack   # pack, install the tarball into a temp prefix, run it, check it serves
 ```

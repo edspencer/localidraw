@@ -12,12 +12,9 @@ Roughly in priority order within each section. Strike items out, or delete them,
   are committed. Maybe a short GIF of drawing while an agent edits the same canvas.
 - [ ] **Brand**: a mark, a light and a dark lockup, a social preview. `web/favicon.svg` is a placeholder (Tabler's
   pencil on Excalidraw's violet).
-- [ ] **Package size** (15.8 MB packed, 21.7 MB unpacked). 12 of the 13 MB of fonts are Xiaolai, Excalidraw's CJK
-  handwriting font. Decide whether to keep it (fully offline) or drop it (CJK text then falls back to a system
-  font), which would bring the package to about 4 MB. The lazily loaded chunks (7.7 MB, mostly Mermaid) could also be
-  looked at.
-- [ ] **A docs test** that the README, the help text and `AGENTS.md` all give the same default port as
-  `DEFAULT_PORT` (3729), as Local Review's `test/docs.test.ts` does.
+- [ ] **Package size** (15.8 MB packed, 21.7 MB unpacked). Decided: keep Xiaolai, Excalidraw's CJK handwriting font
+  (12 of the 13 MB of fonts), so it works fully offline. `npm run smoke:pack` now fails if the package grows past
+  16.5 MB packed or 23 MB unpacked. The lazily loaded chunks (7.7 MB, mostly Mermaid) could still be looked at.
 
 ## Hosting (a Docker image)
 

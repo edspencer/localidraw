@@ -45,7 +45,7 @@ npm start             # build, then run (npm start -- <folder> --port <n>)
 npm test              # node:test via tsx
 npm run typecheck
 npm run build         # dist/web (esbuild) + dist/server (tsc)
-npm run smoke:pack    # pack, install into a temp prefix, run it, check it serves
+npm run smoke:pack    # pack, install into a temp prefix, run it, check it serves and fits its size budget
 ```
 
 Run `npm test` and `npm run typecheck` before committing, and `npm run smoke:pack` when you change the build or
