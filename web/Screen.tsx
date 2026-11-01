@@ -6,3 +6,8 @@ import { prefs } from "./prefs.ts";
 export function Screen({ children }: { children: ReactNode }) {
   return <div className={`excalidraw ld-screen${prefs.theme() === "dark" ? " theme--dark" : ""}`}>{children}</div>;
 }
+
+export const OFFLINE = "Localidraw isn't running: start it again and this page reconnects";
+/** The server is away: a banner at the top of a page outside Excalidraw. Over a canvas, it's a notice in the footer
+ * instead (CanvasView), clear of the toolbar. */
+export const Offline = () => <div className="ld-offline" role="status">{OFFLINE}.</div>;

@@ -2,6 +2,8 @@
    See docs/AESTHETIC.md. Everything sits under .excalidraw so the variables (and dark mode) apply. */
 
 html, body, #root, .ld-app { margin: 0; height: 100%; }
+/* Set by index.html before the page loads, so a dark theme doesn't flash white: Excalidraw's dark canvas colour. */
+html.ld-dark { background: #121212; color-scheme: dark; }
 .ld-app { position: relative; }
 
 .ld-offline {

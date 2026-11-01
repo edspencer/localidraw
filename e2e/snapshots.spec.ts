@@ -1,7 +1,7 @@
 // What Localidraw adds to Excalidraw's UI, in both themes, against committed baselines (docs/AESTHETIC.md).
 // These run only inside the official Playwright image, where the baselines were made: see e2e/README.md.
 import { join } from "node:path";
-import { expect, settled, test } from "./fixtures.ts";
+import { expect, settled, test, waitForCanvas } from "./fixtures.ts";
 
 // Hides the drawing, which isn't under test: only the chrome on top of it is.
 const chrome = { stylePath: join(import.meta.dirname, "snapshots.css") };
@@ -54,6 +54,15 @@ for (const theme of ["light", "dark"] as const) {
       await page.evaluate(() => window.localidraw!.api.updateScene({ appState: { selectedElementIds: {} } }));
       await page.mouse.move(600, 300);
       await expect(page.locator(".layer-ui__wrapper__footer")).toHaveScreenshot(`footer-notice-${theme}.png`, chrome);
+    });
+
+    test("the footer's notice that the server isn't running, clear of the toolbar", async ({ page }) => {
+      await page.route("**/api/events", (route) => route.abort()); // as when the server is stopped
+      await page.goto("/?canvas=notes.excalidraw");
+      await waitForCanvas(page, "notes.excalidraw");
+      await expect(page.getByRole("status").filter({ hasText: "isn't running" })).toBeVisible();
+      await page.mouse.move(600, 300);
+      await expect(page.locator(".layer-ui__wrapper__footer")).toHaveScreenshot(`footer-offline-${theme}.png`, chrome);
     });
 
     test("the footer's notice that the canvas was deleted on disk", async ({ page, folder, open }) => {
