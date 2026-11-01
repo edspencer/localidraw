@@ -54,8 +54,8 @@ export const CANVASES_TAB = "canvases";
 type Props = {
   path: string;
   sidebar: ReactNode; // the Canvases tab's contents
-  /** Called with a function to run when the file changes on disk (its new content hash). */
-  onDiskChange: (handler: (hash: string) => void) => void;
+  /** Called with a function to run when the file changes on disk (its new content hash, or null if it may have). */
+  onDiskChange: (handler: (hash: string | null) => void) => void;
 };
 
 export function CanvasView({ path, sidebar, onDiskChange }: Props) {

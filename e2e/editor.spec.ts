@@ -1,6 +1,7 @@
 // The editor against a real server and real files: the checks the 0.1.0 spike did by hand (TODO.md, "The editor").
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { startServer } from "../server/server.ts";
 import { drawRectangle, expect, fromSkeletons, onScreen, saves, settled, test, waitForCanvas } from "./fixtures.ts";
 
 test("opening and scrolling a canvas doesn't write it", async ({ page, folder, open }) => {
@@ -192,4 +193,32 @@ test("a link to a canvas that isn't there isn't a dead end", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "Couldn't open gone.excalidraw" })).toBeVisible();
   await page.locator(".ld-row", { hasText: "notes" }).click();
   await waitForCanvas(page, "notes.excalidraw");
+});
+
+test("after the server comes back, the page catches up with what changed while it was away", async ({ page, folder }) => {
+  // Its own server, so the test can stop it and start it again on the same port.
+  let app = await startServer({ root: folder.root, port: 0, webDir: join(import.meta.dirname, "../dist/web") });
+  const { port } = new URL(app.url);
+  const events = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/events");
+  await page.goto(`${app.url}?canvas=notes.excalidraw`);
+  await events;
+  await waitForCanvas(page, "notes.excalidraw");
+  await settled(page);
+
+  // Stopped the way a killed process stops: every connection drops, keep-alive ones included.
+  const stopped = app.close();
+  app.server.closeAllConnections();
+  await stopped;
+  await expect(page.locator(".ld-offline")).toBeVisible();
+  // Changed while nothing was watching: a git pull, an agent, another editor.
+  const scene = folder.scene("notes.excalidraw");
+  const added = await fromSkeletons(page, [{ type: "rectangle", x: 0, y: 300, width: 200, height: 80 }]);
+  folder.write("notes.excalidraw", { ...scene, elements: [...scene.elements, ...added] });
+  folder.write("later.excalidraw", { ...scene, elements: [] });
+  app = await startServer({ root: folder.root, port: Number(port), webDir: join(import.meta.dirname, "../dist/web") });
+
+  await expect(page.locator(".ld-offline")).toBeHidden({ timeout: 15_000 });
+  await expect.poll(async () => (await onScreen(page)).length).toBe(2);
+  await expect(page.locator(".ld-row", { hasText: "later" })).toBeVisible();
+  await app.close();
 });
