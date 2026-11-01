@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createCanvas, getProjects, moveCanvas, restoreCanvas, trashCanvas, type Project } from "./api.ts";
 import { CanvasesTab, TrashedNotice, type Trashed, type TrashProps } from "./CanvasesTab.tsx";
-import { CanvasView } from "./CanvasView.tsx";
+import { CanvasView, type Control } from "./CanvasView.tsx";
 import { library } from "./library.ts";
 import { prefs } from "./prefs.ts";
 import { Screen } from "./Screen.tsx";
@@ -15,7 +15,7 @@ export function App() {
   const [path, setPath] = useState<string | null>(pathFromUrl());
   const [offline, setOffline] = useState(false);
   const onDiskChange = useRef<(path: string | null, hash: string | null) => void>(() => {});
-  const canvases = useRef<{ release: (path: string) => Promise<void> }>({ release: async () => {} });
+  const canvases = useRef<Control>({ release: async () => {}, follow: () => {} });
   const [trashed, setTrashed] = useState<Trashed | null>(null); // the canvas last deleted, to undo
 
   const refresh = useCallback(async () => {
@@ -91,8 +91,9 @@ export function App() {
       await canvases.current.release(from);
       const { path: moved } = await moveCanvas(from, to);
       prefs.moveViewport(from, moved);
-      await refresh();
+      canvases.current.follow(from, moved); // the open one stays on screen as it is, saving to its new path
       if (from === pathFromUrl()) open(moved, true);
+      await refresh();
       return null;
     } catch (err) {
       return message(err);

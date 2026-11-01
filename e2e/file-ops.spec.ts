@@ -30,6 +30,9 @@ test("renaming the open canvas saves what was drawn first, moves the file, and f
   await settled(page);
   expect(existsSync(join(folder.root, "notes.excalidraw"))).toBe(false); // nothing saved back at the old path
   await expect(page.locator(".ld-canvas", { hasText: "old-notes" })).toBeVisible();
+  // It stayed on screen rather than being opened afresh, so its undo came with it.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await onScreen(page)).length).toBe(1);
 });
 
 test("a rename never replaces another canvas", async ({ page, folder, open }) => {

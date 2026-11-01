@@ -127,8 +127,10 @@ export function renameNoReplace(from: string, to: string) {
   mkdirSync(dirname(to), { recursive: true });
   if (existsSync(to)) {
     const a = statSync(from), b = statSync(to);
-    if (a.ino !== b.ino || a.dev !== b.dev) throw taken();
-    return renameSync(from, to); // the same file: only the case of its name changes
+    // The same file under a name that differs only in case (a case-insensitive disk): rename it. Anything else there,
+    // a hard link of it included, is another name that's taken.
+    if (a.ino !== b.ino || a.dev !== b.dev || from.toLowerCase() !== to.toLowerCase()) throw taken();
+    return renameSync(from, to);
   }
   try {
     linkSync(from, to);

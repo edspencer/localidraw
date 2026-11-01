@@ -1,6 +1,6 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { request, type IncomingHttpHeaders } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -379,6 +379,11 @@ test("move renames a canvas, into new folders too, and never over another", asyn
     assert.equal((await call("POST", "/api/canvases/move", { body: JSON.stringify({ from, to }) })).status, 400, `${from} → ${to}`);
   }
   assert.equal((await call("POST", "/api/canvases/move", { body: JSON.stringify({ from: "nope.excalidraw", to: "y" }) })).status, 404);
+
+  // Another name for the same file (a hard link) is still a name that's taken: both stay.
+  linkSync(join(root, "mv-b.excalidraw"), join(root, "mv-c.excalidraw"));
+  assert.equal((await call("POST", "/api/canvases/move", { body: JSON.stringify({ from: "mv-b.excalidraw", to: "mv-c" }) })).status, 409);
+  assert.equal(existsSync(join(root, "mv-b.excalidraw")) && existsSync(join(root, "mv-c.excalidraw")), true);
 });
 
 test("delete moves a canvas into .localidraw/trash, and restore brings it back, never over another", async () => {
