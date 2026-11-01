@@ -1,6 +1,6 @@
 {
   "name": "localidraw",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local Excalidraw for the .excalidraw files in a folder: projects and canvases in a sidebar, autosave to disk, and live merge of edits made by your coding agent.",
   "keywords": [
     "excalidraw",
