@@ -15,7 +15,21 @@ Roughly in priority order within each section. Strike items out, or delete them,
 ## The editor
 
 - [ ] **Large files**: canvases with big embedded images (`files`). The body limit is 64 MB, and every save sends the
-  whole scene. Images could be stored apart, or only sent when they change.
+  whole scene, images included, so a canvas with a 10 MB photo sends about 13 MB of base64 each time you move a box.
+  On localhost that's tolerable; through a proxy to a hosted copy it isn't. Design, not yet built:
+  - **Keep the file self-contained.** Images stay in the `.excalidraw` file's `files`, as Excalidraw and the VS Code
+    extension expect, so nothing changes on disk. Storing them apart (`<name>.files/`) would break that round-trip.
+  - **Send only the images the file doesn't have.** The page knows which file ids the version it last saved or loaded
+    had (keep them with `base`). A save sends the scene with `files` holding only the new ids, plus an
+    `x-files-kept: <ids>` header listing the ones it left out. The server, under the same base-hash check (a 409 still
+    returns the whole file, so the merge sees every image), copies those ids' entries from the file on disk into the
+    scene before `writeAtomic`. An id in the header that isn't on disk is a 422, and the page resends in full. So the
+    file written is exactly what a full save would have written.
+  - **Loading** stays one GET. `Cache-Control` doesn't help, because the hash changes with every save. A later step
+    could serve `files` separately (`/api/canvas/files?path=&ids=`) and let the page fetch them lazily.
+  - **Tests:** a save that leaves an image out writes the same bytes as a full save; a 409 merge with images on both
+    sides; an image deleted on disk meanwhile (the server refuses, the page resends in full); and the body size of a
+    save after moving one box.
 
 ## Compatibility and platforms
 
