@@ -16,8 +16,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
 
 - [ ] **Rename, move and delete canvases from the sidebar.** Today that's `git mv`/`git rm` (or Finder), and the
   server only creates and saves. Deleting needs a decision about safety (a trash folder? git only?).
-- [ ] **No remount when switching canvases.** Each switch mounts a new Excalidraw, so the canvas and sidebar flash.
-  Keep one instance and swap scenes (`updateScene`, then clear the undo history), keeping the per-canvas state right.
 - [ ] **Excalidraw's Library is lost on reload.** Persist it, in `localStorage` or as a `.excalidrawlib` in the
   folder, so a project can share one.
 - [ ] **Tell the user when a change of theirs lost** to a change on disk (the same element edited on both sides at

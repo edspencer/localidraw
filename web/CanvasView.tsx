@@ -1,7 +1,9 @@
-// One canvas: Excalidraw on a .excalidraw file, saving as you draw and merging changes made on disk.
+// The canvases: one Excalidraw, showing one .excalidraw file at a time, saving as you draw and merging changes made
+// on disk. Switching canvases swaps the scene in the same Excalidraw, rather than mounting a new one.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CaptureUpdateAction, convertToExcalidrawElements, DefaultSidebar, Excalidraw, Footer, MainMenu, Sidebar, getCommonBounds, restoreAppState, restoreElements, serializeAsJSON } from "@excalidraw/excalidraw";
-import type { AppState, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { getCanvas, putCanvas, type Loaded } from "./api.ts";
 import { changedSince, mergeScenes, versionsOf } from "./merge.ts";
 import { FoldersIcon } from "./icons.tsx";
@@ -9,6 +11,7 @@ import { prefs } from "./prefs.ts";
 import { Screen } from "./Screen.tsx";
 
 const SAVE_AFTER_MS = 700;
+const RETRY_AFTER_MS = 2000; // a canvas you've left that couldn't be saved (the server was down, say)
 
 /**
  * A handle for the browser tests (e2e/), so they wait on real state instead of sleeping: the open canvas's
@@ -19,10 +22,11 @@ export type TestHandle = {
   path: string;
   api: ExcalidrawImperativeAPI;
   /**
-   * The autosave: "due" from a change until its save starts, "saving" until it's done, else "idle"; how many times
-   * it has checked for changes, and how many of those wrote the file.
+   * The open canvas's autosave: "due" from a change until its save starts, "saving" until it's done, else "idle";
+   * how many times it has checked for changes, and how many of those wrote the file. `leaving` counts the canvases
+   * switched away from whose last save isn't done yet.
    */
-  saves: () => { state: "idle" | "due" | "saving"; checked: number; written: number };
+  saves: () => { state: "idle" | "due" | "saving"; checked: number; written: number; leaving: number };
   convertToExcalidrawElements: typeof convertToExcalidrawElements;
 };
 declare global { interface Window { localidraw?: TestHandle } }
@@ -51,131 +55,266 @@ function fitToView(api: ExcalidrawImperativeAPI) {
 }
 export const CANVASES_TAB = "canvases";
 
+type Scene = { elements: readonly ExcalidrawElement[]; appState: AppState; files: BinaryFiles };
+
+/**
+ * One canvas's link to its file: what the screen and the file last agreed on (the file's hash, each element's
+ * version, the background), and its autosave. It outlives the canvas on screen until its last save is done.
+ */
+type Session = {
+  path: string;
+  hash: string;
+  base: Map<string, number>;
+  background: string;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  saving: boolean;
+  again: boolean;
+  checked: number;
+  written: number;
+  /** Once you've switched away: the scene as it was then, which the last save writes (and a 409 merges into). */
+  left?: Scene;
+};
+
+/** The parts of a file's appState that belong to the canvas (Excalidraw's own export keeps these). */
+const canvasAppState = (scene: Loaded["scene"]) => {
+  const a = restoreAppState(scene.appState as Partial<AppState>, null);
+  return { viewBackgroundColor: a.viewBackgroundColor, gridSize: a.gridSize, gridStep: a.gridStep, gridModeEnabled: a.gridModeEnabled };
+};
+
+/** What a canvas swapped in mustn't inherit from the one before: a selection, a half-made element, a menu. */
+const FRESH = {
+  selectedElementIds: {}, selectedGroupIds: {}, editingGroupId: null, hoveredElementIds: {}, selectedLinearElement: null,
+  editingLinearElement: null, editingTextElement: null, newElement: null, multiElement: null, croppingElementId: null,
+  contextMenu: null, openPopup: null,
+} satisfies Partial<AppState>;
+
 type Props = {
   path: string;
   sidebar: ReactNode; // the Canvases tab's contents
-  /** Called with a function to run when the file changes on disk (its new content hash, or null if it may have). */
-  onDiskChange: (handler: (hash: string | null) => void) => void;
+  /**
+   * Called with a function to run when a canvas changes on disk: its path and new content hash, or (null, null)
+   * when the open one may have changed unannounced (the server was away).
+   */
+  onDiskChange: (handler: (path: string | null, hash: string | null) => void) => void;
 };
 
 export function CanvasView({ path, sidebar, onDiskChange }: Props) {
+  // The scene Excalidraw mounts with. Later canvases are swapped into the same Excalidraw.
   const [initial, setInitial] = useState<any>(null);
   const [status, setStatus] = useState("");
-  const [failed, setFailed] = useState<{ message: string; retries: boolean } | null>(null);
+  const [failed, setFailed] = useState<{ path: string; message: string; retries: boolean } | null>(null);
   const [docked, setDocked] = useState(prefs.docked());
+  const [shown, setShown] = useState(path); // the canvas on screen, which lags the URL while the next one loads
+  const failedRef = useRef(failed);
+  failedRef.current = failed;
   const api = useRef<ExcalidrawImperativeAPI | null>(null);
-  // What the screen and the file last agreed on: the file's hash, each element's version, the background.
-  const sync = useRef({ hash: "", base: new Map<string, number>(), background: "", timer: undefined as any, saving: false, again: false, checked: 0, written: 0 });
+  const current = useRef<Session | null>(null); // the canvas on screen
+  const leaving = useRef(new Map<string, Session>()); // canvases switched away from, until their last save is done
+  const announced = useRef(new Map<string, string | null>()); // changes on disk heard while a canvas was loading
 
-  /** The file's newer state onto the screen, keeping what was drawn here since. */
-  const absorb = useCallback((loaded: Loaded) => {
-    const s = sync.current;
+  const isCurrent = (s: Session) => current.current === s;
+
+  /** The file's newer state into the canvas (on screen, or as it was left), keeping what was drawn here since. */
+  const absorb = useCallback((s: Session, loaded: Loaded) => {
     const remote = restoreElements(loaded.scene.elements, null);
     const ex = api.current;
-    if (ex) {
+    if (s.left) {
+      s.left = { ...s.left, elements: mergeScenes(s.left.elements, remote, s.base), files: { ...s.left.files, ...(loaded.scene.files ?? {}) } };
+    } else if (ex && isCurrent(s)) {
       const files = Object.values(loaded.scene.files ?? {});
       if (files.length) ex.addFiles(files);
       ex.updateScene({ elements: mergeScenes(ex.getSceneElementsIncludingDeleted(), remote, s.base), captureUpdate: CaptureUpdateAction.NEVER });
     }
     s.hash = loaded.hash;
     s.base = versionsOf(remote);
-    s.background = restoreAppState(loaded.scene.appState as Partial<AppState>, null).viewBackgroundColor;
+    s.background = canvasAppState(loaded.scene).viewBackgroundColor;
   }, []);
 
-  const save = useCallback(async (): Promise<void> => {
-    const s = sync.current, ex = api.current;
-    if (!ex) return;
+  const save = useCallback(async (s: Session): Promise<void> => {
     if (s.saving) { s.again = true; return; }
-    const elements = ex.getSceneElementsIncludingDeleted();
-    const appState = ex.getAppState();
+    const ex = api.current;
+    const scene: Scene | null = s.left ?? (ex && isCurrent(s)
+      ? { elements: ex.getSceneElementsIncludingDeleted(), appState: ex.getAppState(), files: ex.getFiles() }
+      : null);
+    if (!scene) return;
+    const done = () => { if (s.left && leaving.current.get(s.path) === s) leaving.current.delete(s.path); };
     s.checked++;
-    if (!changedSince(elements, s.base) && appState.viewBackgroundColor === s.background) return;
+    if (!changedSince(scene.elements, s.base) && scene.appState.viewBackgroundColor === s.background) return done();
     s.saving = true;
-    setStatus("Saving…");
+    if (isCurrent(s)) setStatus("Saving…");
+    let retry = false;
     try {
-      const result = await putCanvas(path, s.hash, serializeAsJSON(elements, appState, ex.getFiles(), "local"));
+      const result = await putCanvas(s.path, s.hash, serializeAsJSON(scene.elements, scene.appState, scene.files, "local"));
       if (!result.ok) {
-        absorb(result.conflict);
+        absorb(s, result.conflict);
         s.again = true; // save the merge
         return;
       }
       s.hash = result.hash;
       s.written++;
-      s.base = versionsOf(elements);
-      s.background = appState.viewBackgroundColor;
-      setStatus(`Saved ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`);
+      s.base = versionsOf(scene.elements);
+      s.background = scene.appState.viewBackgroundColor;
+      if (isCurrent(s)) setStatus(`Saved ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`);
     } catch (err) {
-      setStatus(`Not saved: ${err instanceof Error ? err.message : err}`);
+      if (isCurrent(s)) setStatus(`Not saved: ${err instanceof Error ? err.message : err}`);
+      // On screen, the next change (or status re-render) tries again; a canvas you've left has to try by itself.
+      retry = !!s.left;
     } finally {
       s.saving = false;
-      if (s.again) { s.again = false; void save(); }
+      if (s.again) { s.again = false; void save(s); }
+      else if (retry) s.timer = setTimeout(() => { s.timer = undefined; if (s.left) void save(s); }, RETRY_AFTER_MS);
+      else done();
     }
-  }, [path, absorb]);
+  }, [absorb]);
 
-  useEffect(() => {
-    let live = true, failed = false;
-    const load = () => getCanvas(path).then((loaded) => {
-      if (!live) return;
-      failed = false;
-      setFailed(null);
-      const s = sync.current;
-      const elements = restoreElements(loaded.scene.elements, null);
-      s.hash = loaded.hash;
-      s.base = versionsOf(elements);
-      s.background = restoreAppState(loaded.scene.appState as Partial<AppState>, null).viewBackgroundColor;
-      const view = prefs.viewport(path);
-      setInitial({
-        elements,
-        files: loaded.scene.files ?? {},
-        fit: !view && elements.some((e) => !e.isDeleted), // fitting an empty canvas zooms in absurdly
-        appState: { ...loaded.scene.appState, ...(view ?? {}), theme: prefs.theme(), openSidebar: prefs.openSidebar() },
+  /** Takes the canvas on screen off it: its scene as it is now goes with it, saved if it changed. */
+  const leave = useCallback(() => {
+    const s = current.current, ex = api.current;
+    if (!s) return;
+    current.current = null;
+    clearTimeout(s.timer);
+    s.timer = undefined;
+    if (ex) s.left = { elements: ex.getSceneElementsIncludingDeleted(), appState: ex.getAppState(), files: ex.getFiles() };
+    if (!s.left) return;
+    leaving.current.set(s.path, s);
+    void save(s);
+  }, [save]);
+
+  /** Fetches the open canvas from disk and merges it in, unless it's the version on screen. */
+  const catchUp = useCallback(async (s: Session, hash: string | null) => {
+    if (hash !== null && hash === s.hash) return; // our own save
+    const loaded = await getCanvas(s.path).catch(() => null);
+    if (!loaded || !isCurrent(s) || loaded.hash === s.hash) return;
+    absorb(s, loaded);
+    setStatus("Updated from disk");
+  }, [absorb]);
+
+  /** Puts a canvas on screen: in the Excalidraw that's there, or by mounting the first. */
+  const show = useCallback((p: string, loaded: Loaded | null) => {
+    leave();
+    setFailed(null);
+    setStatus("");
+    // A canvas left a moment ago whose save isn't done is picked up where it was, rather than read from disk.
+    const resumed = leaving.current.get(p);
+    if (!resumed?.left && !loaded) return;
+    let s: Session, scene: { elements: readonly ExcalidrawElement[]; files: BinaryFiles; appState: ReturnType<typeof canvasAppState> };
+    if (resumed?.left) {
+      s = resumed;
+      leaving.current.delete(p);
+      const left = s.left!;
+      s.left = undefined;
+      clearTimeout(s.timer);
+      s.timer = undefined;
+      const { viewBackgroundColor, gridSize, gridStep, gridModeEnabled } = left.appState;
+      scene = { elements: left.elements, files: left.files, appState: { viewBackgroundColor, gridSize, gridStep, gridModeEnabled } };
+    } else {
+      const elements = restoreElements(loaded!.scene.elements, null);
+      s = { path: p, hash: loaded!.hash, base: versionsOf(elements), background: canvasAppState(loaded!.scene).viewBackgroundColor,
+        timer: undefined, saving: false, again: false, checked: 0, written: 0 };
+      scene = { elements, files: loaded!.scene.files ?? {}, appState: canvasAppState(loaded!.scene) };
+    }
+    current.current = s;
+    setShown(p);
+    const view = prefs.viewport(p);
+    // The first time a canvas is opened here, show all of it; after that, where you left it. Fitting an empty canvas
+    // zooms in absurdly, so that one starts at the origin.
+    const fit = !view && scene.elements.some((e) => !e.isDeleted);
+    const ex = api.current;
+    if (!ex) {
+      setInitial({ elements: scene.elements, files: scene.files, fit,
+        appState: { ...scene.appState, ...(view ?? {}), theme: prefs.theme(), openSidebar: prefs.openSidebar() } });
+    } else {
+      const files = Object.values(scene.files);
+      if (files.length) ex.addFiles(files);
+      ex.updateScene({
+        elements: scene.elements,
+        appState: { ...FRESH, ...scene.appState, ...(view ?? { scrollX: 0, scrollY: 0, zoom: { value: 1 as AppState["zoom"]["value"] } }) },
+        captureUpdate: CaptureUpdateAction.NEVER,
       });
-    }).catch((err) => {
-      if (!live) return;
-      failed = true;
-      setFailed({ message: err.message, retries: err.status !== 400 });
-    });
-    void load();
+      ex.history.clear(); // undo stays on the canvas it was done on
+      expose(ex);
+      if (fit) fitToView(ex);
+    }
+    if (resumed) void catchUp(s, null); // it may have changed on disk while it was off screen
+    else if (announced.current.has(p)) void catchUp(s, announced.current.get(p)!);
+    announced.current.clear();
+  }, [leave, catchUp]);
 
-    onDiskChange(async (hash) => {
-      if (failed) return void load(); // made, or mended, on disk: try again
-      if (hash === sync.current.hash) return; // our own save
-      const loaded = await getCanvas(path).catch(() => null);
-      if (!loaded || loaded.hash === sync.current.hash) return;
-      absorb(loaded);
-      setStatus("Updated from disk");
+  const expose = (a: ExcalidrawImperativeAPI) => {
+    const s = current.current;
+    if (!s) return;
+    window.localidraw = { path: s.path, api: a, convertToExcalidrawElements, saves: () => ({
+      state: s.saving || s.again ? "saving" : s.timer !== undefined ? "due" : "idle", checked: s.checked, written: s.written,
+      leaving: leaving.current.size,
+    }) };
+  };
+
+  // Each time the URL names another canvas: load it, then show it. Until then, the one before stays on screen.
+  useEffect(() => {
+    let live = true;
+    const load = () => {
+      if (leaving.current.get(path)?.left) return show(path, null); // left a moment ago: picked up as it was
+      getCanvas(path).then((loaded) => {
+        if (live) show(path, loaded);
+      }).catch((err) => {
+        if (!live) return;
+        leave();
+        api.current = null; // the screen below unmounts Excalidraw; the next canvas mounts a new one
+        setInitial(null);
+        if (window.localidraw) delete window.localidraw;
+        setFailed({ path, message: err.message, retries: err.status !== 400 });
+      });
+    };
+    load();
+    onDiskChange((p, hash) => {
+      if (!live) return;
+      if (p !== null && p !== path) return; // another canvas; any left one finds out when it saves (409)
+      const s = current.current;
+      if (!s || s.path !== path) {
+        // Still loading, or failed: hear it once it's open, or try again (it may be made, or mended, on disk now).
+        if (failedRef.current) return void load();
+        announced.current.set(path, hash);
+        return;
+      }
+      void catchUp(s, hash);
     });
+    return () => { live = false; };
+  }, [path]);
+
+  // ⌘S saves the open canvas at once; leaving the page (or this view) saves it too.
+  useEffect(() => {
     const saveNow = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         e.stopPropagation();
-        clearTimeout(sync.current.timer);
-        sync.current.timer = undefined;
-        void save();
+        const s = current.current;
+        if (!s) return;
+        clearTimeout(s.timer);
+        s.timer = undefined;
+        void save(s);
       }
     };
     window.addEventListener("keydown", saveNow, true);
     return () => {
-      live = false;
       window.removeEventListener("keydown", saveNow, true);
-      clearTimeout(sync.current.timer);
-      sync.current.timer = undefined;
-      if (window.localidraw?.path === path) delete window.localidraw;
-      void save(); // switching canvases: keep what was drawn
+      leave();
+      delete window.localidraw;
     };
-  }, [path]);
+  }, []);
 
   const onChange = useCallback((_elements: unknown, appState: AppState) => {
-    prefs.remember(path, appState);
-    clearTimeout(sync.current.timer);
-    sync.current.timer = setTimeout(() => { sync.current.timer = undefined; void save(); }, SAVE_AFTER_MS);
-  }, [path, save]);
+    const s = current.current;
+    if (!s) return;
+    prefs.remember(s.path, appState);
+    clearTimeout(s.timer);
+    s.timer = setTimeout(() => { s.timer = undefined; void save(s); }, SAVE_AFTER_MS);
+  }, [save]);
 
   if (failed) {
     return (
       <Screen>
         <div className="Island ld-screen__island ld-screen__island--canvases">
-          <h1>Couldn't open {path}</h1>
+          <h1>Couldn't open {failed.path}</h1>
           <p>
             {failed.message}
             {failed.retries && " It opens here as soon as the file is there and valid."}
@@ -191,15 +330,11 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
       initialData={initial}
       excalidrawAPI={(a) => {
         api.current = a;
-        const s = sync.current;
-        window.localidraw = { path, api: a, convertToExcalidrawElements, saves: () => ({
-          state: s.saving || s.again ? "saving" : s.timer !== undefined ? "due" : "idle", checked: s.checked, written: s.written,
-        }) };
-        // The first time a canvas is opened here, show all of it; after that, where you left it.
+        expose(a);
         if (initial.fit) setTimeout(() => fitToView(a), 300);
       }}
       onChange={onChange}
-      name={path.split("/").pop()?.replace(/\.excalidraw$/, "")}
+      name={shown.split("/").pop()?.replace(/\.excalidraw$/, "")}
       // The page is all canvas, so shortcuts work wherever the focus is (Excalidraw still skips text fields).
       handleKeyboardGlobally
       // It saves to this file only: no "open" or "save to" that would leave the file behind.

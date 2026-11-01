@@ -39,8 +39,8 @@ For agents (and people) developing Localidraw itself.
   with caching and compression (`static.ts`), the file rules (`files.ts`), `security.ts`, `port.ts` and
   `package.ts` (the version, and where the built page is). Run from source by `tsx` in tests; compiled to
   `dist/server` for the package.
-- `web/`: the page. `App.tsx` (the open canvas, the projects, the server's events), `CanvasView.tsx` (Excalidraw on
-  one file: load, autosave, merge), `CanvasesTab.tsx` (the sidebar tab), `merge.ts` (pure, tested in Node),
+- `web/`: the page. `App.tsx` (the open canvas, the projects, the server's events), `CanvasView.tsx` (the one
+  Excalidraw, swapping canvases in and out of it: load, autosave, merge), `CanvasesTab.tsx` (the sidebar tab), `merge.ts` (pure, tested in Node),
   `styles.css`. Bundled by `scripts/build-web.mjs` (esbuild) into `dist/web`, with Excalidraw's fonts.
 - `brand/`: the mark, lockups, icons and social cards, all made from `mark.svg` by `generate.mjs` (which also
   writes `web/favicon.svg`). [brand/README.md](brand/README.md) has the rules.
