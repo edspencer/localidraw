@@ -71,4 +71,5 @@ node brand/generate.mjs
 
 It uses three of the repo's devDependencies (`@resvg/resvg-js`, `opentype.js` and `@fontsource/assistant`), none of
 which ship in the package. The output is deterministic, so commit what it writes. Edit `mark.svg` for the mark, and
-the constants at the top of `generate.mjs` for the colours, tagline and URL.
+the constants at the top of `generate.mjs` for the colours, tagline and URL. Then run `npm run sync-brand` in
+`website/` to copy the assets into the docs site.

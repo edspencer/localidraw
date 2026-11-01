@@ -3,7 +3,7 @@
 ```sh
 npx playwright install chromium   # once
 npm run docs:media:demo           # remake demo/
-npm run docs:media:hero           # record docs/media/hero.gif (needs ffmpeg)
+npm run docs:media:hero           # record docs/media/hero.gif, and copy it to website/public/demo/ (needs ffmpeg)
 npm run docs:media:hero -- --skip-shoot   # re-encode the last run's frames
 ```
 

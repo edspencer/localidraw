@@ -1,0 +1,66 @@
+---
+title: Getting started
+description: Run Localidraw on a folder with npx, and the options it takes.
+---
+
+import { LOCAL_URL, DEFAULT_PORT } from '../../site.mjs';
+
+You need [Node.js](https://nodejs.org) 22 or later. Nothing else: Localidraw has no runtime dependencies, and the
+editor and its fonts are in the package.
+
+```sh
+npx localidraw            # the current folder
+npx localidraw ~/notes    # or any folder
+```
+
+Then open <a href={`${LOCAL_URL}/`}>{LOCAL_URL}</a>. It prints the address and how many canvases it found:
+
+```
+Localidraw 0.2.0: http://localhost:3729/
+  /Users/you/notes (4 canvases)
+```
+
+To keep it around rather than download it each time, install it globally:
+
+```sh
+npm install -g localidraw
+localidraw ~/notes
+```
+
+## Options
+
+```
+localidraw [folder] [--port <n>] [--open]
+```
+
+| Option | What it does |
+| --- | --- |
+| `folder` | Where the canvases are. The default is the current folder. `node_modules` and dot-folders (`.git` and the like) are skipped. |
+| `--port <n>` | The port. The default is <code>{DEFAULT_PORT}</code>, which spells "DRAW" on a phone keypad, or `$PORT` if that's set. |
+| `--open` | Opens it in your browser. |
+| `-v`, `--version` | Prints the version. |
+| `-h`, `--help` | Prints the options. |
+
+If the port is taken, it says so and stops; run it with `--port` and another number. One Localidraw per folder: two
+servers on the same folder would each save without knowing about the other's page.
+
+## What it remembers, and where
+
+- **The drawings are the files.** Nothing else is written into them: no viewport, no theme, no sidebar state.
+- **The browser keeps your preferences:** the viewport per canvas, the theme and whether the sidebar is docked, in
+  `localStorage`. They follow the browser, not the folder.
+- **The open canvas is in the URL**, as `?canvas=path/in/folder.excalidraw`, so you can bookmark one.
+
+## Safety
+
+Localidraw listens on `127.0.0.1` only, so nothing else on your network can reach it. It refuses requests whose
+`Host` or `Origin` isn't localhost, so a web page you visit can't read or write your canvases through it.
+
+It only touches `.excalidraw` files inside the folder you gave it, outside dot-folders and `node_modules`. It creates
+and saves canvases; it never deletes or renames anything. Do that in your shell, your file manager or git.
+
+## Next
+
+- [The Canvases sidebar](/canvases/): projects, the filter and New canvas.
+- [Saving and merging](/saving-and-merging/): what happens when a file changes on disk.
+- [Working with coding agents](/agents/): how an agent should edit a canvas.

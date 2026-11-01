@@ -68,6 +68,42 @@ jobs:
             test-results/
           retention-days: 14
 
+  website:
+    name: Docs site build
+    runs-on: ubuntu-latest
+    # paths-filter reads the PR's changed-file list through the API.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      # Cloudflare Pages builds website/ on its own, so this catches a broken docs build before it merges. Only when
+      # website/ changes; otherwise the job passes with its build steps skipped.
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            docs:
+              - 'website/**'
+      - uses: actions/setup-node@v7
+        if: steps.filter.outputs.docs == 'true'
+        with:
+          node-version-file: website/.node-version
+      # `npm install`, not `npm ci`: it's what Cloudflare Pages runs.
+      - name: Install docs-site deps
+        if: steps.filter.outputs.docs == 'true'
+        run: npm install
+        working-directory: website
+      - name: Build docs site
+        if: steps.filter.outputs.docs == 'true'
+        run: npm run build
+        working-directory: website
+      # Every site-relative link (and #fragment) in the built pages resolves (no dependencies; scripts/check-links.mjs).
+      - name: Check internal links
+        if: steps.filter.outputs.docs == 'true'
+        run: npm run check-links
+        working-directory: website
+
   # Windows is best effort for now: paths, the recursive fs.watch and `explorer` for --open are untested there
   # (TODO.md, "Compatibility and platforms"). This leg reports what fails without blocking a merge: it's
   # continue-on-error, and ci-passed doesn't wait for it.
@@ -98,7 +134,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [test, e2e]
+    needs: [test, e2e, website]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to have passed

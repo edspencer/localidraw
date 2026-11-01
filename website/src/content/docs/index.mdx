@@ -1,0 +1,48 @@
+---
+title: Excalidraw for the files in a folder
+description: A local Excalidraw for the .excalidraw files in a folder. Saved as you draw, and merged with what your coding agent writes.
+template: splash
+hero:
+  title: Localidraw
+  tagline: A local Excalidraw for the <code>.excalidraw</code> files in a folder. Saved to the file as you draw, and merged with what your coding agent writes to it.
+  actions:
+    - text: Get started
+      link: /getting-started/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/edspencer/localidraw
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+import { LOCAL_URL } from '../../site.mjs';
+
+```sh
+npx localidraw ~/notes
+```
+
+Then open <a href={`${LOCAL_URL}/`}>{LOCAL_URL}</a>.
+
+<img class="hero-demo" src="/demo/hero.gif" width="1180" height="640" alt="Drawing a box on a canvas while a coding agent adds another to the same file: the agent's change appears, and the drawing is kept" />
+
+<small>Drawn live in Localidraw while a script edits the file as an agent would. The pointer and captions were added for the recording.</small>
+
+<CardGrid>
+	<Card title="Projects and canvases" icon="open-book">
+		Every folder with `.excalidraw` files in it is a project, and each file is a canvas, in a **Canvases** tab
+		next to Excalidraw's Library. [The sidebar](/canvases/)
+	</Card>
+	<Card title="Saved as you draw" icon="document">
+		Each canvas is written back to its file a moment after you stop. Opening one, or moving around it, never writes
+		it, so `git status` stays clean. [Saving and merging](/saving-and-merging/)
+	</Card>
+	<Card title="Draw alongside your agent" icon="rocket">
+		When an agent edits a file you have open, the change appears within a second, merged per element with what
+		you've drawn. [Working with coding agents](/agents/)
+	</Card>
+	<Card title="It's Excalidraw" icon="star">
+		Excalidraw 0.18.1, the version the VS Code extension uses, so files open in both. It runs offline, on
+		127.0.0.1 only.
+	</Card>
+</CardGrid>

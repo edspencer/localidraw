@@ -30,6 +30,15 @@ updates:
         update-types: [minor, patch]
     # Majors come as one PR each, so each gets read.
 
+  # The docs site (website/), a separate private package that Cloudflare Pages builds.
+  - package-ecosystem: npm
+    directory: /website
+    schedule:
+      interval: weekly
+    groups:
+      website:
+        update-types: [minor, patch]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
