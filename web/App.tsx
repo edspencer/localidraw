@@ -12,7 +12,7 @@ export function App() {
   const [rootName, setRootName] = useState("");
   const [path, setPath] = useState<string | null>(pathFromUrl());
   const [offline, setOffline] = useState(false);
-  const onDiskChange = useRef<(hash: string | null) => void>(() => {});
+  const onDiskChange = useRef<(path: string | null, hash: string | null) => void>(() => {});
 
   const refresh = useCallback(async () => {
     const { root, projects } = await getProjects();
@@ -37,7 +37,7 @@ export function App() {
       events.onmessage = (m) => {
         const e = JSON.parse(m.data);
         if (e.type === "projects") void refresh();
-        if (e.type === "changed" && e.path === pathFromUrl()) onDiskChange.current(e.hash);
+        if (e.type === "changed") onDiskChange.current(e.path, e.hash);
       };
       events.onerror = () => {
         lost = true;
@@ -53,7 +53,7 @@ export function App() {
         if (!lost) return;
         lost = false;
         void refresh();
-        onDiskChange.current(null);
+        onDiskChange.current(null, null);
       };
     };
     connect();
@@ -82,7 +82,7 @@ export function App() {
     <div className="ld-app">
       {offline && <div className="ld-offline">Localidraw isn't running: start it again and this page reconnects.</div>}
       {path
-        ? <CanvasView key={path} path={path} sidebar={tab} onDiskChange={(h) => { onDiskChange.current = h; }} />
+        ? <CanvasView path={path} sidebar={tab} onDiskChange={(h) => { onDiskChange.current = h; }} />
         : <EmptyFolder rootName={rootName} onCreate={create} />}
     </div>
   );

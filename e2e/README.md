@@ -4,6 +4,8 @@ Playwright, in Chromium, against the real server and real files.
 
 - `editor.spec.ts` covers the editor: opening never writes, autosave, edits made on disk, merging, shortcuts, and
   the first view.
+- `switching.spec.ts` covers switching canvases in the one Excalidraw: a save still due or on its way when you
+  switch, an agent's edit to the canvas you left, undo and the view staying with their canvas.
 - `snapshots.spec.ts` covers the theme snapshots: what Localidraw adds to Excalidraw's UI, in light and dark.
 
 Each test starts its own server on port 0, over a temporary copy of a folder in `folders/` (`fixtures.ts`), so the
@@ -21,7 +23,8 @@ The tests never sleep. The page exposes a small handle for them, `window.localid
 `web/CanvasView.tsx`. It has:
 
 - the open canvas's path and Excalidraw API;
-- `saves()`, the autosave's state (`idle`, `due` or `saving`) and counts of its checks and writes;
+- `saves()`, the open canvas's autosave state (`idle`, `due` or `saving`), counts of its checks and writes, and how
+  many canvases you've switched away from are still saving;
 - Excalidraw's `convertToExcalidrawElements`. It can't run in Node, so a test uses it to write the skeletons a
   coding agent would.
 
