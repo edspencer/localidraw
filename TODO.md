@@ -7,14 +7,9 @@ Roughly in priority order within each section. Strike items out, or delete them,
 
 - [ ] **Review `AI-DECLARATION.md`.** It's a draft written by Claude in Ed's voice, modelled on Local Review's. Make it
   true and yours.
-- [ ] **CI** (`.github/workflows/ci.yml`): typecheck, `npm test`, build and `npm run smoke:pack`, on Node 22 and 24, on
-  Linux and macOS, like Local Review's. Left out of the first push on purpose. (Linux hasn't been run at all yet:
-  check the recursive `fs.watch` and the tests there.)
 - [ ] **Releases**: changesets plus a release workflow with npm trusted publishing and provenance, never from a
   laptop, as in Local Review (`RELEASING.md`, `.changeset/`). `publishConfig` already asks for provenance.
 - [ ] **Publish `localidraw` to npm.** The name was free on 2026-11-01, so `npx localidraw` should then work.
-- [ ] **Repo hygiene** as in Local Review: `CONTRIBUTING.md`, `SECURITY.md`, issue and PR templates, `CODEOWNERS`,
-  Dependabot.
 - [ ] **README hero image** from a neutral demo folder. The spike's screenshots were of private diagrams, so none
   are committed. Maybe a short GIF of drawing while an agent edits the same canvas.
 - [ ] **Brand**: a mark, a light and a dark lockup, a social preview. `web/favicon.svg` is a placeholder (Tabler's

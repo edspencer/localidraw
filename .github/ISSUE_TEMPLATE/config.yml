@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/edspencer/localidraw/security/advisories/new
+    about: Please report security problems privately, not as an issue.
+  - name: A problem with Excalidraw itself
+    url: https://github.com/excalidraw/excalidraw/issues
+    about: Drawing tools, shapes and export are Excalidraw's. Report them there, unless they only happen in Localidraw.

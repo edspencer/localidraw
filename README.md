@@ -65,7 +65,8 @@ npm run typecheck
 npm run smoke:pack   # pack, install the tarball into a temp prefix, run it, check it serves
 ```
 
-See [AGENTS.md](AGENTS.md) for the conventions.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute, and [AGENTS.md](AGENTS.md) for the conventions. Security
+problems: [SECURITY.md](SECURITY.md), please, not an issue.
 
 ## Licence
 
