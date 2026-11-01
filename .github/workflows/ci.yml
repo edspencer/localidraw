@@ -34,10 +34,11 @@ jobs:
       - run: npm ci
       - name: Typecheck
         run: npm run typecheck
-      - name: Tests
-        run: npm test
+      # Built first: some tests start the CLI, which serves the built page.
       - name: Build
         run: npm run build
+      - name: Tests
+        run: npm test
       # Packs the package, installs the tarball into a temp prefix and runs it as a user would (scripts/smoke-pack.mjs).
       - name: Smoke-test the npm package
         run: npm run smoke:pack
@@ -120,12 +121,12 @@ jobs:
       - run: npm ci
       - name: Typecheck
         run: npm run typecheck
-      - name: Tests
-        if: ${{ !cancelled() }}
-        run: npm test
       - name: Build
         if: ${{ !cancelled() }}
         run: npm run build
+      - name: Tests
+        if: ${{ !cancelled() }}
+        run: npm test
       - name: Smoke-test the npm package
         if: ${{ !cancelled() }}
         run: npm run smoke:pack

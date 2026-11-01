@@ -68,7 +68,6 @@ for (let i = 0; i < args.length; i++) {
 
 const root = resolve(folder ?? ".");
 if (!existsSync(root) || !statSync(root).isDirectory()) fail(`${root} isn't a folder`);
-if (!existsSync(resolve(webDir, "index.html"))) fail("the page isn't built; run `npm run build` in the localidraw checkout");
 const given = portArg ?? process.env.PORT;
 const port = given === undefined || given === "" ? DEFAULT_PORT : parsePort(given) ?? fail(`not a port number: ${given}`);
 
@@ -91,6 +90,8 @@ if (pollValue !== undefined && !/^(false|off|no|0)$/i.test(pollValue)) {
   poll = /^(true|on|yes)$/i.test(pollValue) ? DEFAULT_POLL : /^\d+$/.test(pollValue) ? Number(pollValue) : fail(`--poll takes a number of milliseconds, not ${pollValue}`);
   if (poll < 100) fail(`--poll ${poll} is too often; give at least 100 ms`);
 }
+
+if (!existsSync(resolve(webDir, "index.html"))) fail("the page isn't built; run `npm run build` in the localidraw checkout");
 
 try {
   const { url } = await startServer({ root, port, webDir, host, allowedHosts, poll });
