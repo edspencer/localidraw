@@ -1,5 +1,15 @@
 # localidraw
 
+## 0.2.1
+
+### Patch Changes
+
+- [#17](https://github.com/edspencer/localidraw/pull/17) [`d2804eb`](https://github.com/edspencer/localidraw/commit/d2804eb65e0a47beb08f938180d31cedf8271189) Thanks [@edspencer](https://github.com/edspencer)! - The package's homepage is now the docs site, https://localidraw.edspencer.net, with a guide to editing canvases from a coding agent.
+
+- [#15](https://github.com/edspencer/localidraw/pull/15) [`a8765d3`](https://github.com/edspencer/localidraw/commit/a8765d39ef45a9ee77b3f185ad4ce8a7e7ff288f) Thanks [@edspencer](https://github.com/edspencer)! - A request for a path starting with `//` (such as `//?canvas=…`) no longer stops the server: it's a 404.
+
+- [#13](https://github.com/edspencer/localidraw/pull/13) [`e4ece54`](https://github.com/edspencer/localidraw/commit/e4ece5463780abef3b50a9012f25bbe025161d98) Thanks [@edspencer](https://github.com/edspencer)! - A new icon: a folder with a diagram in it, on Excalidraw's violet, in place of the placeholder pencil.
+
 ## 0.2.0
 
 ### Minor Changes
