@@ -6,8 +6,8 @@ agent-facing version of the same conventions (it's what `CLAUDE.md` loads).
 
 ## Setup
 
-You need Node.js 22 or later (`.nvmrc` says 22) and git, on macOS or Linux. Windows isn't supported yet: CI runs it,
-but doesn't require it to pass.
+You need Node.js 22 or later (`.nvmrc` says 22) and git, on macOS, Linux or Windows; CI runs all three. The browser
+tests and the Docker image are checked on Linux only.
 
 ```sh
 git clone https://github.com/edspencer/localidraw.git

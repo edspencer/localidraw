@@ -36,10 +36,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
 - [ ] **Excalidraw upgrades.** It's pinned at 0.18.1, the version the VS Code extension uses, so files round-trip.
   Before moving to a newer Excalidraw, check that the extension still opens what we save. React stays at 18 until
   Excalidraw's bundled Radix packages accept 19.
-- [ ] **Windows**: CI runs it (Node 24) as a best-effort leg that doesn't block. On the first run, typecheck, the
-  tests and the build passed; `smoke:pack` failed at once (`spawnSync npm ENOENT`: `scripts/smoke-pack.mjs` runs
-  `npm` and `mkdir -p` without a shell, and on Windows npm is `npm.cmd`). Still untested beyond that: paths in the
-  page, the recursive `fs.watch` in real use, `explorer` for `--open`. Then make the leg blocking.
 - [ ] **Big folders on Linux**: Localidraw watches each folder there (Node's recursive watch went deaf to a file once
   another was renamed over it), skipping dot-folders and `node_modules`. It still watches folders with no canvases, so
   it can see new ones arrive; a tree with many such folders costs an inotify watch each
