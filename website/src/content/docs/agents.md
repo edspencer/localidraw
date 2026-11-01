@@ -42,9 +42,9 @@ The format is Excalidraw's own, documented in
    higher version wins; an edit that leaves `version` alone loses.
 2. **New elements get new ids and `version: 1`.** Any unique string will do for an `id`.
 3. **Drop `index` on new elements, or set it yourself.** Don't copy an `index` from another element or number your
-   own from `"a0"`: they'd clash with the file's. Without one, Excalidraw gives the element an `index` (which is saved
-   once), but on a canvas that's open it can land at the back of the z-order. To put it on top, give it an `index`
-   greater than the highest in the file; the highest with a character added (`"a5"` → `"a5V"`) always is.
+   own from `"a0"`: they'd clash with the file's. Without one, Excalidraw numbers the element after the others, on
+   top, and the number is written with the next save. To choose its place yourself, give it an `index` between its
+   neighbours'; above the highest in the file, the highest with a character added (`"a5"` → `"a5V"`) always is.
 4. **Leave alone what you didn't mean to change**, including other elements' `version`, and `appState`.
 5. **Write the whole file, atomically**: write to a temporary file in the same folder and rename it over the canvas.
    Localidraw reads the file as soon as it changes. A half-written file won't be opened or saved over, but it shows as
@@ -82,7 +82,8 @@ template, as below, is the easiest way to get every field right.
 
 ## An example: adding a box and an arrow in Node
 
-What the script behind the [demo GIF](https://github.com/edspencer/localidraw#readme) does, trimmed:
+What the script behind the [demo GIF](https://github.com/edspencer/localidraw#readme) does, trimmed. Run from
+the repo's `demo/` folder, it works as is:
 
 ```js
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -95,9 +96,9 @@ const rand = () => Math.floor(Math.random() * 2 ** 31);
 // a copy of an existing element, as new: a new version, nonce and seed, and no index
 const fresh = ({ index, ...e }) => ({ ...e, version: 1, versionNonce: rand(), seed: rand(), updated: Date.now() });
 
-const box = { ...fresh(api), id: "cache", x: 640, y: 180, backgroundColor: "#ffc9c9",
+const box = { ...fresh(api), id: "cache", x: 640, y: 180, strokeColor: "#e03131", backgroundColor: "#ffc9c9",
   boundElements: [{ type: "text", id: "cache-label" }, { type: "arrow", id: "api-cache" }] };
-const text = { ...fresh(label), id: "cache-label", containerId: "cache",
+const text = { ...fresh(label), id: "cache-label", containerId: "cache", strokeColor: "#e03131",
   text: "Redis cache", originalText: "Redis cache",
   width: 11 * label.fontSize * 0.6, height: label.fontSize * 1.25 };
 text.x = box.x + (box.width - text.width) / 2;

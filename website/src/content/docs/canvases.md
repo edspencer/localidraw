@@ -68,7 +68,7 @@ catches up with anything that changed on disk meanwhile, and saves what you drew
 
 ## An empty folder, or a canvas that won't open
 
-On a folder with no canvases yet, the page says so and offers **New canvas**.
+On a folder with no canvases yet, the page says so, with a button to **make the first one**.
 
 A canvas that can't be opened (it isn't in the folder, or the file isn't valid JSON, or isn't an Excalidraw scene)
 gets a page that says why and lists the canvases. It's never opened as a blank canvas, so it can't be drawn over and
