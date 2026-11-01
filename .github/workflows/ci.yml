@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         node: [22, 24]
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -123,32 +123,6 @@ jobs:
           cache-to: type=gha,mode=max,scope=ci-image
       - name: Start it and check it
         run: scripts/smoke-image.sh localidraw:smoke "$(node -p "require('./package.json').version")"
-
-  # Windows is best effort for now: paths, the recursive fs.watch and `explorer` for --open are untested there
-  # (TODO.md, "Compatibility and platforms"). This leg reports what fails without blocking a merge: it's
-  # continue-on-error, and ci-passed doesn't wait for it.
-  windows:
-    name: Test (Node 24, windows-latest, best effort)
-    runs-on: windows-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Build
-        if: ${{ !cancelled() }}
-        run: npm run build
-      - name: Tests
-        if: ${{ !cancelled() }}
-        run: npm test
-      - name: Smoke-test the npm package
-        if: ${{ !cancelled() }}
-        run: npm run smoke:pack
 
   # One stable check name to require in branch rules, so the matrix can change without editing them.
   ci-passed:

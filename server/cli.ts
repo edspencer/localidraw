@@ -107,8 +107,10 @@ try {
     "",
   ].join("\n"));
   if (open) {
-    const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-    spawn(cmd, [url], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+    // On Windows, rundll32's FileProtocolHandler hands the URL to the default browser, as `start` would, without a
+    // shell (`explorer <url>` works too, but it exits 1 and mangles some URLs).
+    const [cmd, cmdArgs]: [string, string[]] = process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]] : ["xdg-open", [url]];
+    spawn(cmd, cmdArgs, { stdio: "ignore", detached: true }).on("error", () => {}).unref();
   }
 } catch (err) {
   const code = (err as NodeJS.ErrnoException).code;
