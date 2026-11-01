@@ -19,6 +19,16 @@ test("the higher version wins; a tie goes to disk", () => {
   assert.equal(merged[2], remote[2], "a tie takes the disk's copy");
 });
 
+// A `git checkout`, `git stash` or branch switch puts older versions on disk. Taking the higher version there undid
+// the checkout: the page saved its copies straight back over it.
+test("an element not changed here takes the disk's copy, even an older version", () => {
+  const base = versionsOf([el("a", 5), el("b", 5)]);
+  const merged = mergeScenes([el("a", 5), el("b", 6)], [el("a", 1), el("b", 1)], base);
+  assert.deepEqual(ids(merged), ["a@1", "b@6"], "b was changed here since, so it's a conflict, and the higher version wins");
+  assert.equal(changedSince(merged, versionsOf([el("a", 1), el("b", 1)])), true, "and only b's change is saved");
+  assert.equal(changedSince([merged[0]], versionsOf([el("a", 1)])), false);
+});
+
 test("an element removed on disk goes, unless it was changed here since", () => {
   const base = versionsOf([el("gone", 1), el("edited", 1)]);
   assert.deepEqual(ids(mergeScenes([el("gone", 1), el("edited", 2)], [], base)), ["edited@2"]);

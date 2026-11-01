@@ -222,3 +222,24 @@ test("after the server comes back, the page catches up with what changed while i
   await expect(page.locator(".ld-row", { hasText: "later" })).toBeVisible();
   await app.close();
 });
+
+test("putting an older version of the file back (git checkout) sticks", async ({ page, folder, open }) => {
+  const original = folder.read("notes.excalidraw");
+  await open("notes.excalidraw");
+  await settled(page);
+  // Move everything a little: the elements' versions go up, and it's saved.
+  await page.mouse.click(700, 650);
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Escape");
+  await expect.poll(() => folder.read("notes.excalidraw")).not.toBe(original);
+  await settled(page);
+  const { written } = await saves(page);
+
+  writeFileSync(join(folder.root, "notes.excalidraw"), original); // what `git checkout -- notes.excalidraw` does
+  const x = folder.elements("notes.excalidraw")[0].x;
+  await expect.poll(async () => page.evaluate(() => window.localidraw!.api.getSceneElements()[0].x)).toBe(x);
+  await settled(page, (await saves(page)).checked);
+  expect((await saves(page)).written).toBe(written);
+  expect(folder.read("notes.excalidraw")).toBe(original);
+});
