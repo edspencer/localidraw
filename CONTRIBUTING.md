@@ -39,7 +39,7 @@ churns the lockfile.
 
 ## Checks
 
-CI runs all of these on Node 22 and 24, on Linux and macOS. Run them before you open a PR:
+CI runs all of these on Node 22 and 24, on Linux, macOS and Windows (the browser tests on Linux). Run them before you open a PR:
 
 ```sh
 npm run typecheck

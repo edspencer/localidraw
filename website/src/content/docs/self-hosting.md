@@ -106,7 +106,7 @@ Every option has an environment variable, which is handier in a service file or 
 At startup it prints what's in effect, so you can check:
 
 ```
-Localidraw 0.3.0: http://localhost:3729/
+Localidraw 0.4.0: http://localhost:3729/
   /srv/canvases (12 canvases)
   listening on 0.0.0.0:3729
   answering to localhost, draw.example.com
@@ -185,7 +185,7 @@ Mount the share with a short attribute cache (`actimeo=1`, or `noac`) if other m
 
 ## Health check
 
-`GET /api/health` answers `{ "ok": true, "version": "0.3.0" }`. It's subject to the same host check as everything
+`GET /api/health` answers `{ "ok": true, "version": "0.4.0" }`. It's subject to the same host check as everything
 else, so check it as `http://127.0.0.1:3729/api/health` from the machine itself.
 
 ## The limits
@@ -196,9 +196,10 @@ These come from what Localidraw is, a file server for one folder, and they'll st
   check is between the page and that server. Two Localidraws on the same folder (on a shared drive, say) don't know
   about each other's pages.
 - **Changes arrive on save, not live.** There's no collaboration server. Other people's drawing appears when their
-  page saves it, about a second after they stop, not stroke by stroke.
+  page saves it, under a second after they stop, not stroke by stroke.
 - **Two people on one canvas merge on save.** Each save is merged per element with the file, so neither loses work,
-  but if you both move the same box, the later save wins.
+  but if you both move the same box, the copy with more edits (the higher `version`) wins, the file's on a tie, and the
+  other person's page tells them their edit lost.
 - **File events can be missed** on NFS and SMB mounts, and through Docker Desktop's bind mounts on macOS. Use
   `--poll` there.
 - **On Linux, every folder is a file watch.** Localidraw watches each folder under the root (not dot-folders or

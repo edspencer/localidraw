@@ -13,11 +13,14 @@ npx localidraw            # the current folder
 npx localidraw ~/notes    # or any folder
 ```
 
-Then open <a href={`${LOCAL_URL}/`}>{LOCAL_URL}</a>. It prints the address and how many canvases it found:
+Then open <a href={`${LOCAL_URL}/`}>{LOCAL_URL}</a>. It prints the address, the folder and how many canvases it found, and what it listens on:
 
 ```
-Localidraw 0.2.0: http://localhost:3729/
+Localidraw 0.4.0: http://localhost:3729/
   /Users/you/notes (4 canvases)
+  listening on 127.0.0.1:3729 (this machine only)
+  answering to localhost
+  watching for changes by file events
 ```
 
 To keep it around rather than download it each time, install it globally:
@@ -30,7 +33,7 @@ localidraw ~/notes
 ## Options
 
 ```
-localidraw [folder] [--port <n>] [--open]
+localidraw [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>] [--poll [ms]]
 ```
 
 | Option | What it does |
@@ -47,7 +50,7 @@ These are for [hosting it](/self-hosting/), on a server or in Docker, behind a r
 | --- | --- |
 | `--host <addr>` | The address to listen on. The default is `127.0.0.1`, or `$LOCALIDRAW_HOST` if that's set. Anything that isn't loopback (`0.0.0.0`, a LAN address) needs at least one `--allowed-host`, or it won't start. |
 | `--allowed-host <name>` | A host name to answer to besides localhost, such as `draw.example.com`: the name alone, without `https://` or a port. Repeat it for more, or set `$LOCALIDRAW_ALLOWED_HOSTS` to a comma-separated list. Requests for any other name are refused. |
-| `--poll [ms]` | Finds changes by checking the files every `ms` milliseconds (2000 if you leave it out) instead of by file events. For a folder on a network mount (NFS, SMB), where another machine's writes send no events. `$LOCALIDRAW_POLL` takes the milliseconds, or `true`. |
+| `--poll [ms]` | Finds changes by checking the files every `ms` milliseconds (2000 if you leave it out) instead of by file events. For a folder on a network mount (NFS, SMB) or a Docker Desktop bind mount on macOS, where the writes send no events. `$LOCALIDRAW_POLL` takes the milliseconds, or `true`. |
 
 A flag wins over its environment variable, and `--allowed-host` flags replace `$LOCALIDRAW_ALLOWED_HOSTS` rather
 than adding to it.
@@ -75,7 +78,7 @@ sidebar moves the file into `.localidraw/trash/` in the folder.
 
 ## Next
 
-- [The Canvases sidebar](/canvases/): projects, the filter and New canvas.
+- [The Canvases sidebar](/canvases/): projects, the filter, New canvas, and renaming, moving and deleting.
 - [The Library](/library/): reusable shapes, in the browser or shared in the folder.
 - [Saving and merging](/saving-and-merging/): what happens when a file changes on disk.
 - [Working with coding agents](/agents/): how an agent should edit a canvas.

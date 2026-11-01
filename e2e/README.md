@@ -6,6 +6,9 @@ Playwright, in Chromium, against the real server and real files.
   the first view.
 - `switching.spec.ts` covers switching canvases in the one Excalidraw: a save still due or on its way when you
   switch, an agent's edit to the canvas you left, undo and the view staying with their canvas.
+- `file-ops.spec.ts` covers renaming, moving and deleting from the sidebar: saving first, never over another file,
+  a delete only a move into `.localidraw/trash`, Undo, and the open canvas moved or deleted on disk.
+- `hosted.spec.ts` covers the page reached by an `--allowed-host` name, as through a reverse proxy.
 - `library.spec.ts` covers the Library: kept in the browser, or in the folder's `library.excalidrawlib`.
 - `snapshots.spec.ts` covers the theme snapshots: what Localidraw adds to Excalidraw's UI, in light and dark.
 
@@ -14,7 +17,7 @@ tests run in parallel and never touch each other's files.
 
 ```sh
 npx playwright install chromium   # once
-npm run test:e2e                  # builds the page, then runs the editor tests
+npm run test:e2e                  # builds the page, then runs the browser tests
 npm run test:e2e -- --ui          # anything after -- goes to `playwright test`
 ```
 

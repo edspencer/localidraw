@@ -19,8 +19,7 @@ publishes a release from a laptop, and no npm token exists. (The one exception i
    - `publish-npm`: `npm publish` (`prepack` builds `dist/`), then check that the provenance attestation is visible
      on the registry;
    - `github-release`: create the tag `v<version>` at the merge commit, and a GitHub Release whose notes are that
-     version's `CHANGELOG.md` section.
-
+     version's `CHANGELOG.md` section;
    - `build-image` and `publish-image`, alongside the npm jobs: the Docker image (below).
 
 So you decide *when* to release by merging the version PR, and *what* the version is by the changesets. Nobody edits
@@ -105,11 +104,11 @@ publishes a placeholder **`localidraw@0.0.1`** by hand, from a laptop:
 3. Under the package's publishing access, require 2FA and disallow tokens.
 
 0.0.1 is the only version that will ever have been published from a laptop, and it's permanently unattested. That's
-why it holds no code. Until the first real release, `npx localidraw` resolves to the placeholder and fails ("could
+why it holds no code. Until the first real release, `npx localidraw` resolved to the placeholder and failed ("could
 not determine executable to run").
 
-The first real release is **0.2.0** (0.1.0 was the spike, never published; its `CHANGELOG.md` entry stays). Once
-0.2.0 is out, deprecate the placeholder by hand (it needs a logged-in maintainer):
+The first real release was **0.2.0** (0.1.0 was the spike, never published; its `CHANGELOG.md` entry stays). The
+placeholder still wants deprecating by hand (it needs a logged-in maintainer):
 `npm deprecate localidraw@0.0.1 "placeholder, use the latest version"`.
 
 ## When something goes wrong
