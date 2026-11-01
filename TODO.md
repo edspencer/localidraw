@@ -37,8 +37,9 @@ Roughly in priority order within each section. Strike items out, or delete them,
   [AGENTS.md's checklist](AGENTS.md#upgrading-excalidraw).
 - [ ] **Other formats?** `.excalidraw.svg` and `.excalidraw.png` (a scene embedded in an image, as the VS Code
   extension and Obsidian write). (`library.excalidrawlib` at the root is the shared Library.)
-- [ ] **11 `npm audit` warnings**, all in devDependencies (Excalidraw's own dependencies). The package ships none,
-  but keep an eye on them.
+- [ ] **`npm audit`**: two findings left in Excalidraw's dependencies (`nanoid` 4 and `katex`, through Mermaid), neither
+  reachable as Localidraw uses them, and neither fixable without moving Excalidraw. Triaged in
+  [SECURITY.md](SECURITY.md#npm-audit); look again with each Excalidraw upgrade.
 
 ## Name
 
