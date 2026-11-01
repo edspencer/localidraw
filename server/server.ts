@@ -57,7 +57,8 @@ const skipped = (rel: string) => rel.split("/").some((p) => p.startsWith(".") ||
  * On macOS and Windows that's one recursive watch. On Linux it's a watch on each folder, as folders come and go:
  * Node's recursive watch there follows each file, so it goes deaf to a file once another is renamed over it, which
  * is how Localidraw saves (writeAtomic) and how many editors and agents do. A folder's own watch reports its entries
- * by name, whatever is renamed over them. It also skips dot-folders and node_modules instead of walking them.
+ * by name, whatever is renamed over them. It also skips dot-folders and node_modules instead of walking them. Folders
+ * without canvases are watched too, so a canvas made in one is seen.
  */
 function watchTree(root: string, changed: (rel: string) => void): { close: () => void } {
   if (process.platform !== "linux") {
@@ -65,6 +66,7 @@ function watchTree(root: string, changed: (rel: string) => void): { close: () =>
     return { close: () => w.close() };
   }
   const watchers = new Map<string, FSWatcher>(); // by root-relative folder, "" for the root
+  let warned = false;
   const unwatch = (dir: string) => {
     for (const [d, w] of watchers) if (dir === "" || d === dir || d.startsWith(`${dir}/`)) { w.close(); watchers.delete(d); }
   };
@@ -86,8 +88,15 @@ function watchTree(root: string, changed: (rel: string) => void): { close: () =>
         }
         changed(rel);
       });
-    } catch {
-      return; // gone already, or unreadable
+    } catch (err) {
+      // Each folder costs an inotify watch, and they're limited per user (fs.inotify.max_user_watches). Past the limit
+      // a folder can't be watched; say so once, rather than miss its changes in silence.
+      const code = (err as NodeJS.ErrnoException).code;
+      if ((code === "ENOSPC" || code === "EMFILE") && !warned) {
+        warned = true;
+        console.error(`localidraw: can't watch ${dir || "the folder"} for changes: the system's limit on file watches is reached (${code === "ENOSPC" ? "fs.inotify.max_user_watches" : "open files"}). Changes there won't show until you reload. Raise the limit, or use --poll.`);
+      }
+      return; // gone already, unreadable, or past the limit
     }
     w.on("error", () => unwatch(dir));
     watchers.set(dir, w);

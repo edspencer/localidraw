@@ -40,10 +40,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
   tests and the build passed; `smoke:pack` failed at once (`spawnSync npm ENOENT`: `scripts/smoke-pack.mjs` runs
   `npm` and `mkdir -p` without a shell, and on Windows npm is `npm.cmd`). Still untested beyond that: paths in the
   page, the recursive `fs.watch` in real use, `explorer` for `--open`. Then make the leg blocking.
-- [ ] **Big folders on Linux**: Localidraw watches each folder there (Node's recursive watch went deaf to a file once
-  another was renamed over it), skipping dot-folders and `node_modules`. It still watches folders with no canvases, so
-  it can see new ones arrive; a tree with many such folders costs an inotify watch each
-  (`fs.inotify.max_user_watches`).
 - [ ] **Other formats?** `.excalidraw.svg` and `.excalidraw.png` (a scene embedded in an image, as the VS Code
   extension and Obsidian write). (`library.excalidrawlib` at the root is the shared Library.)
 - [ ] **11 `npm audit` warnings**, all in devDependencies (Excalidraw's own dependencies). The package ships none,
