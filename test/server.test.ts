@@ -116,6 +116,12 @@ test("only localhost pages may call it", async () => {
   assert.equal((await call("GET", "/api/projects")).status, 200);
 });
 
+test("a path starting with // is a 404, and the server carries on", async () => {
+  assert.equal((await call("GET", "//?canvas=top.excalidraw")).status, 404);
+  assert.equal((await call("GET", "//evil.example/api/projects")).status, 404);
+  assert.equal((await call("GET", "/api/projects")).status, 200);
+});
+
 /**
  * Resolves once the server announces `rel` with the content `write` puts there. The watcher can take a moment to
  * start (FSEvents on macOS), so it writes every 300 ms until the change is seen, up to 5 s.

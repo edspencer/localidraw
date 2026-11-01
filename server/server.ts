@@ -120,7 +120,9 @@ export function startServer({ root, port, webDir }: Options): Promise<Running> {
 
   const server = createServer(async (req, res) => {
     if (!localOnly(req, res)) return;
-    const url = new URL(req.url ?? "/", "http://localhost");
+    // Not `new URL(req.url, base)`: a path starting `//` would be read as a host, and throw.
+    let url: URL;
+    try { url = new URL(`http://localhost${req.url ?? "/"}`); } catch { return res.writeHead(400).end(); }
     const path = url.pathname;
     try {
       if (req.method === "GET" && path === "/") return res.writeHead(200, { "content-type": TYPES[".html"] }).end(index);
