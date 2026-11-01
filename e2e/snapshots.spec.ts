@@ -56,6 +56,15 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.locator(".layer-ui__wrapper__footer")).toHaveScreenshot(`footer-notice-${theme}.png`, chrome);
     });
 
+    test("the footer's notice that the canvas was deleted on disk", async ({ page, folder, open }) => {
+      await open("notes.excalidraw");
+      await settled(page);
+      folder.remove("notes.excalidraw");
+      await expect(page.locator(".ld-notice")).toBeVisible();
+      await page.mouse.move(600, 300);
+      await expect(page.locator(".layer-ui__wrapper__footer")).toHaveScreenshot(`footer-gone-${theme}.png`, chrome);
+    });
+
     test("a canvas's menu, delete's confirm, and the notice after a delete", async ({ page, open }) => {
       await open("plan.excalidraw");
       await settled(page);

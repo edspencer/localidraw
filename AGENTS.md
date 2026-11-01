@@ -11,7 +11,9 @@ For agents (and people) developing Localidraw itself.
   rewrite every file you open. Keep it that way.
 - **Nothing written on disk is lost.** A save sends the hash it was based on (`x-base-hash`); the server answers 409
   with the current file if it moved on, and the page merges (`mergeScenes`) before saving again. Writes go through
-  `writeAtomic` (a temporary file, then a rename). Don't add a write path around either.
+  `writeAtomic` (a temporary file, then a rename). Don't add a write path around either. A save never puts back a
+  canvas that's gone (410): the page follows a move, or says it was deleted and writes it again only when asked
+  (`x-base-hash: none`, which is refused if a file is there by then).
 - **Only canvases inside the folder.** Every path from the page goes through `resolveInRoot` in `server/files.ts`:
   inside the root, not in a dot-folder or `node_modules`, and a `.excalidraw` file. The server creates, saves, renames
   and moves canvases (and saves `<root>/library.excalidrawlib`, a fixed path, when it exists). A rename or move never

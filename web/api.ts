@@ -19,11 +19,18 @@ export const getProjects = () => fetch("/api/projects").then((r) => reply<{ root
 export const getCanvas = (path: string) => fetch(canvasUrl(path)).then((r) => reply<Loaded>(r));
 export const createCanvas = (path: string) => post<{ path: string }>("/api/canvases", { path });
 
-/** Saves over the version with `baseHash`. A 409 means the file moved on: its new version comes back to merge. */
+/** The base hash that puts back a canvas that's gone (only while there's still no file there). */
+export const NO_FILE = "none";
+
+/**
+ * Saves over the version with `baseHash`. A 409 means the file moved on: its new version comes back to merge. `gone`
+ * means there's no file there any more (deleted or moved), and nothing was written.
+ */
 export async function putCanvas(path: string, baseHash: string, content: string):
-  Promise<{ ok: true; hash: string } | { ok: false; conflict: Loaded }> {
+  Promise<{ ok: true; hash: string } | { ok: false; conflict: Loaded } | { ok: false; gone: true }> {
   const res = await fetch(canvasUrl(path), { method: "PUT", headers: { "x-base-hash": baseHash, "content-type": "application/json" }, body: content });
   if (res.status === 409) return { ok: false, conflict: await res.json() };
+  if (res.status === 410) return { ok: false, gone: true };
   return { ok: true, ...(await reply<{ hash: string }>(res)) };
 }
 
