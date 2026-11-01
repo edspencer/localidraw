@@ -18,9 +18,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
   anyway.
 - [ ] **Large files**: canvases with big embedded images (`files`). The body limit is 64 MB, and every save sends the
   whole scene. Images could be stored apart, or only sent when they change.
-- [ ] **The open canvas deleted or moved on disk.** The page keeps showing it, and the next save writes it back at
-  the old path (so nothing drawn is lost, but a `git mv` by an agent leaves a copy behind). Say so on the page, and
-  offer to follow a move, once the sidebar can rename and move.
 - [ ] **The "isn't running" banner covers the middle of the toolbar** while it shows. Move it clear of the toolbar,
   or into the footer.
 - [ ] **Text an agent wrote too small is clipped.** Excalidraw draws a text element at the `width`/`height` in the

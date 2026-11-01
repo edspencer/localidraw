@@ -1,6 +1,6 @@
 // Renaming, moving and deleting canvases from the sidebar: atomic, never over another file, a delete only ever a move
 // into .localidraw/trash, and whatever was drawn saved first so it goes with the file.
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { drawRectangle, expect, onScreen, saves, settled, test, waitForCanvas } from "./fixtures.ts";
@@ -121,4 +121,49 @@ test("the menu opens on a right-click too, and Escape closes it without doing an
   await expect(page.getByRole("menu")).toHaveCount(0);
   expect((await saves(page)).written).toBe(0);
   expect(trashFiles(folder.root)).toEqual([]);
+});
+
+// The open canvas deleted or moved on disk, by an agent, a shell or git, rather than from the sidebar.
+
+test("the open canvas moved on disk (a git mv) is followed, and saves go to its new path", async ({ page, folder, open }) => {
+  await open("notes.excalidraw");
+  await settled(page);
+  mkdirSync(join(folder.root, "archive"));
+  renameSync(join(folder.root, "notes.excalidraw"), join(folder.root, "archive/notes.excalidraw"));
+  await page.waitForFunction(() => window.localidraw?.path === "archive/notes.excalidraw");
+  await expect.poll(() => new URL(page.url()).searchParams.get("canvas")).toBe("archive/notes.excalidraw");
+  await expect(page.locator(".ld-notice")).toHaveCount(0);
+  await drawRectangle(page);
+  await expect.poll(() => folder.elements("archive/notes.excalidraw").length).toBe(2);
+  expect(existsSync(join(folder.root, "notes.excalidraw"))).toBe(false); // no copy left behind
+});
+
+test("the open canvas deleted on disk says so, isn't written back, and is saved again only when asked", async ({ page, folder, open }) => {
+  await open("notes.excalidraw");
+  await settled(page);
+  folder.remove("notes.excalidraw");
+  const notice = page.locator(".ld-notice", { hasText: "deleted or moved on disk" });
+  await expect(notice).toBeVisible();
+  await drawRectangle(page); // drawing on: kept on screen, not saved
+  await settled(page, (await saves(page)).checked);
+  expect(existsSync(join(folder.root, "notes.excalidraw"))).toBe(false);
+  await expect(page.locator(".ld-status")).toHaveText("Not saved");
+
+  await notice.getByRole("button", { name: "Save it again" }).click();
+  await expect.poll(() => existsSync(join(folder.root, "notes.excalidraw")) && folder.elements("notes.excalidraw").length).toBe(2);
+  await expect(notice).toHaveCount(0);
+  await drawRectangle(page, { x: 450, y: 250 }); // and it autosaves again from there
+  await expect.poll(() => folder.elements("notes.excalidraw").length).toBe(3);
+});
+
+test("the open canvas put back on disk (a checkout) picks up again, keeping what was drawn meanwhile", async ({ page, folder, open }) => {
+  const notes = folder.read("notes.excalidraw");
+  await open("notes.excalidraw");
+  await settled(page);
+  folder.remove("notes.excalidraw");
+  await expect(page.locator(".ld-notice", { hasText: "deleted or moved on disk" })).toBeVisible();
+  await drawRectangle(page);
+  folder.writeRaw("notes.excalidraw", notes);
+  await expect(page.locator(".ld-notice")).toHaveCount(0);
+  await expect.poll(() => folder.elements("notes.excalidraw").length).toBe(2);
 });

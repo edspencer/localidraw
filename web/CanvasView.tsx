@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { CaptureUpdateAction, convertToExcalidrawElements, DefaultSidebar, Excalidraw, Footer, MainMenu, Sidebar, getCommonBounds, restoreAppState, restoreElements, serializeAsJSON } from "@excalidraw/excalidraw";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import { getCanvas, putCanvas, type Loaded } from "./api.ts";
+import { getCanvas, NO_FILE, putCanvas, type Loaded } from "./api.ts";
 import { changedSince, mergeScenes, versionsOf } from "./merge.ts";
 import { CloseIcon, FoldersIcon } from "./icons.tsx";
 import { library } from "./library.ts";
@@ -76,6 +76,8 @@ type Session = {
   written: number;
   /** Once you've switched away: the scene as it was then, which the last save writes (and a 409 merges into). */
   left?: Scene;
+  /** Its file was deleted or moved on disk, and no move was found to follow: it isn't saved until it's put back. */
+  gone?: boolean;
 };
 
 /** The parts of a file's appState that belong to the canvas (Excalidraw's own export keeps these). */
@@ -95,10 +97,13 @@ type Props = {
   path: string;
   sidebar: ReactNode; // the Canvases tab's contents
   /**
-   * Called with a function to run when a canvas changes on disk: its path and new content hash, or (null, null)
-   * when the open one may have changed unannounced (the server was away).
+   * Called with a function to run when a canvas changes on disk: its path and new content hash; its path and null
+   * when it's gone (deleted, or moved); or (null, null) when the open one may have changed unannounced (the server
+   * was away).
    */
   onDiskChange: (handler: (path: string | null, hash: string | null) => void) => void;
+  /** The open canvas was moved on disk, and followed: the page's URL goes with it. */
+  onMoved: (from: string, to: string) => void;
   /**
    * Called with what the page can ask of the canvases: `release` waits until a canvas's saves have all landed, and
    * `follow` points a canvas at the path it was renamed or moved to, keeping it on screen as it is (and its undo).
@@ -109,21 +114,28 @@ type Props = {
 export type Control = { release: (path: string) => Promise<void>; follow: (from: string, to: string) => void };
 
 const RELEASE_TIMEOUT_MS = 5000;
+/** A canvas that arrives this close to the open one going, with the same content, is where it was moved to. */
+const MOVE_WINDOW_MS = 5000;
 
-export function CanvasView({ path, sidebar, onDiskChange, control }: Props) {
+export function CanvasView({ path, sidebar, onDiskChange, onMoved, control }: Props) {
   // The scene Excalidraw mounts with. Later canvases are swapped into the same Excalidraw.
   const [initial, setInitial] = useState<any>(null);
   const [status, setStatus] = useState("");
   const [failed, setFailed] = useState<{ path: string; message: string; retries: boolean } | null>(null);
   const [docked, setDocked] = useState(prefs.docked());
   const [shown, setShown] = useState(path);
-  const [lost, setLost] = useState<{ ids: string[] } | null>(null); // edits here that lost to a change on disk // the canvas on screen, which lags the URL while the next one loads
+  const [lost, setLost] = useState<{ ids: string[] } | null>(null); // edits here that lost to a change on disk
+  const [gone, setGone] = useState(false); // the canvas on screen was deleted or moved on disk
   const failedRef = useRef(failed);
   failedRef.current = failed;
   const api = useRef<ExcalidrawImperativeAPI | null>(null);
   const current = useRef<Session | null>(null); // the canvas on screen
   const leaving = useRef(new Map<string, Session>()); // canvases switched away from, until their last save is done
   const announced = useRef(new Map<string, string | null>()); // changes on disk heard while a canvas was loading
+  // The other canvases changed on disk a moment ago, by content hash: where the open one went, if it was moved.
+  const arrived = useRef(new Map<string, { path: string; at: number }>());
+  const movedRef = useRef(onMoved);
+  movedRef.current = onMoved;
 
   const isCurrent = (s: Session) => current.current === s;
 
@@ -148,6 +160,7 @@ export function CanvasView({ path, sidebar, onDiskChange, control }: Props) {
 
   const save = useCallback(async (s: Session): Promise<void> => {
     if (s.saving) { s.again = true; return; }
+    if (s.gone) { s.checked++; return; } // not saved until it's followed, comes back, or is put back
     const ex = api.current;
     const scene: Scene | null = s.left ?? (ex && isCurrent(s)
       ? { elements: ex.getSceneElementsIncludingDeleted(), appState: ex.getAppState(), files: ex.getFiles() }
@@ -159,8 +172,15 @@ export function CanvasView({ path, sidebar, onDiskChange, control }: Props) {
     s.saving = true;
     if (isCurrent(s)) setStatus("Saving…");
     let retry = false;
+    const at = s.path;
     try {
-      const result = await putCanvas(s.path, s.hash, serializeAsJSON(scene.elements, scene.appState, scene.files, "local"));
+      const result = await putCanvas(at, s.hash, serializeAsJSON(scene.elements, scene.appState, scene.files, "local"));
+      if (!result.ok && "gone" in result) {
+        // Renamed from the sidebar while this was on its way: save again, at the new path.
+        if (s.path !== at) s.again = true;
+        else lose(s);
+        return;
+      }
       if (!result.ok) {
         absorb(s, result.conflict);
         // Merged: if that left anything of ours to save, the next save says "Saving…" again.
@@ -185,6 +205,52 @@ export function CanvasView({ path, sidebar, onDiskChange, control }: Props) {
     }
   }, [absorb]);
 
+  /** Points a canvas at the path its file was renamed or moved to, keeping it on screen as it is (and its undo). */
+  const retarget = (s: Session, to: string) => {
+    const from = s.path;
+    s.path = to;
+    if (!isCurrent(s)) return;
+    if (s.gone) {
+      s.gone = false;
+      setGone(false);
+      void save(s); // whatever was drawn while it seemed gone
+    }
+    setShown(to);
+    if (api.current) expose(api.current);
+    movedRef.current(from, to);
+  };
+
+  /**
+   * The canvas's file is gone from its path. If a canvas just arrived with the same content, it was moved: follow it.
+   * Otherwise it was deleted, and the one on screen says so and waits to be put back. One you've left is dropped.
+   */
+  function lose(s: Session) {
+    if (s.left) {
+      if (leaving.current.get(s.path) === s) leaving.current.delete(s.path);
+      return;
+    }
+    if (!isCurrent(s)) return;
+    const twin = arrived.current.get(s.hash);
+    if (twin && twin.path !== s.path && Date.now() - twin.at < MOVE_WINDOW_MS) return retarget(s, twin.path);
+    s.gone = true;
+    clearTimeout(s.timer);
+    s.timer = undefined;
+    setGone(true);
+    setStatus("Not saved");
+  }
+
+  /** Writes the canvas on screen back at its path, after it was deleted there: all of it, as if new. */
+  const putBack = () => {
+    const s = current.current;
+    if (!s?.gone) return;
+    s.gone = false;
+    s.hash = NO_FILE;
+    s.base = new Map();
+    s.background = "";
+    setGone(false);
+    void save(s);
+  };
+
   /** Takes the canvas on screen off it: its scene as it is now goes with it, saved if it changed. */
   const leave = useCallback(() => {
     const s = current.current, ex = api.current;
@@ -192,6 +258,7 @@ export function CanvasView({ path, sidebar, onDiskChange, control }: Props) {
     current.current = null;
     clearTimeout(s.timer);
     s.timer = undefined;
+    if (s.gone) return; // nowhere to save it
     if (ex) s.left = { elements: ex.getSceneElementsIncludingDeleted(), appState: ex.getAppState(), files: ex.getFiles() };
     if (!s.left) return;
     leaving.current.set(s.path, s);
@@ -201,7 +268,11 @@ export function CanvasView({ path, sidebar, onDiskChange, control }: Props) {
   /** Fetches the open canvas from disk and merges it in, unless it's the version on screen. */
   const catchUp = useCallback(async (s: Session, hash: string | null) => {
     if (hash !== null && hash === s.hash) return; // our own save
-    const loaded = await getCanvas(s.path).catch(() => null);
+    const at = s.path;
+    const loaded = await getCanvas(at).catch((err) => {
+      if (err.status === 404 && isCurrent(s) && s.path === at) lose(s);
+      return null;
+    });
     if (!loaded || !isCurrent(s) || loaded.hash === s.hash) return;
     absorb(s, loaded);
     setStatus("Updated from disk");
@@ -213,6 +284,7 @@ export function CanvasView({ path, sidebar, onDiskChange, control }: Props) {
     setFailed(null);
     setStatus("");
     setLost(null);
+    setGone(false);
     // A canvas left a moment ago whose save isn't done is picked up where it was, rather than read from disk.
     const resumed = leaving.current.get(p);
     if (!resumed?.left && !loaded) return;
@@ -288,12 +360,30 @@ export function CanvasView({ path, sidebar, onDiskChange, control }: Props) {
     load();
     onDiskChange((p, hash) => {
       if (!live) return;
-      if (p !== null && p !== path) return; // another canvas; any left one finds out when it saves (409)
+      if (p !== null && p !== path) {
+        // Another canvas; any left one finds out when it saves (409). One that arrives with the content of the canvas
+        // on screen may be where it was moved to.
+        if (hash === null) return;
+        arrived.current.delete(hash);
+        arrived.current.set(hash, { path: p, at: Date.now() });
+        if (arrived.current.size > 50) arrived.current.delete(arrived.current.keys().next().value!);
+        const s = current.current;
+        if (s?.gone && s.hash === hash) retarget(s, p);
+        return;
+      }
       const s = current.current;
       if (!s || s.path !== path) {
         // Still loading, or failed: hear it once it's open, or try again (it may be made, or mended, on disk now).
         if (failedRef.current) return void load();
         announced.current.set(path, hash);
+        return;
+      }
+      if (p !== null && hash === null) return lose(s); // deleted, or moved
+      if (s.gone && hash !== null) {
+        // It's back (a checkout, an undo): take what's there, then save what was drawn meanwhile.
+        s.gone = false;
+        setGone(false);
+        void catchUp(s, hash).then(() => save(s));
         return;
       }
       void catchUp(s, hash);
@@ -323,11 +413,7 @@ export function CanvasView({ path, sidebar, onDiskChange, control }: Props) {
     },
     follow: (from, to) => {
       const s = current.current;
-      if (s?.path === from) {
-        s.path = to;
-        setShown(to);
-        if (api.current) expose(api.current);
-      }
+      if (s?.path === from) retarget(s, to);
     },
   });
 
@@ -424,6 +510,12 @@ export function CanvasView({ path, sidebar, onDiskChange, control }: Props) {
       </DefaultSidebar>
       <Footer>
         <div className="ld-status" title={status}>{status}</div>
+        {gone && (
+          <div className="ld-notice" role="status">
+            <span className="ld-notice__text">This canvas was deleted or moved on disk</span>
+            <button type="button" className="ld-notice__action" onClick={putBack}>Save it again</button>
+          </div>
+        )}
         {lost && (
           <div className="ld-notice" role="status">
             <span className="ld-notice__text">

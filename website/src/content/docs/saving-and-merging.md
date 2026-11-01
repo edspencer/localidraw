@@ -63,5 +63,11 @@ Because the file's copy wins for anything you haven't touched, git works as you'
 `git checkout -- file`, `git stash`, `git pull` and switching branches all show up on screen within a second, and
 none of them is undone by the next save.
 
-If the open canvas is deleted or moved on disk, the page keeps showing it, and your next change saves it again at the
-old path. Nothing you drew is lost, but a `git mv` leaves a copy behind. Following a move is on the list too.
+If the open canvas is **moved** on disk (`git mv`, a rename in your file manager or by an agent), the page follows it:
+the canvas stays on screen as it is, the address changes, and saves go to the new path. A move is recognised by a
+canvas arriving with the same content within a few seconds; a file moved and edited at once looks like a delete.
+
+If it's **deleted** on disk (or a branch switch takes it away), the page never writes it back by itself. The drawing
+stays on screen, the status says **Not saved**, and a notice says **"This canvas was deleted or moved on disk"**, with
+**Save it again**, which writes what's on screen back at its path. If the file comes back (switching back, `git
+checkout`), the notice goes, what's on disk is merged in as usual, and anything you drew meanwhile is saved.

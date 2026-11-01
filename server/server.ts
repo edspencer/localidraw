@@ -46,6 +46,9 @@ function readBody(req: IncomingMessage): Promise<string> {
 const withExtension = (wanted: unknown) =>
   typeof wanted === "string" && !wanted.trim().endsWith(".excalidraw") ? `${wanted.trim()}.excalidraw` : typeof wanted === "string" ? wanted.trim() : wanted;
 
+/** The base hash of a save that puts back a canvas that's gone. */
+const NO_FILE = "none";
+
 const skipped = (rel: string) => rel.split("/").some((p) => p.startsWith(".") || SKIPPED_DIRS.has(p));
 
 /**
@@ -65,7 +68,9 @@ function watchTree(root: string, changed: (rel: string) => void): { close: () =>
   const unwatch = (dir: string) => {
     for (const [d, w] of watchers) if (dir === "" || d === dir || d.startsWith(`${dir}/`)) { w.close(); watchers.delete(d); }
   };
-  const add = (dir: string) => {
+  // A folder that arrives with files already in it (a `git mv` into a new folder, a checkout) had them before its watch
+  // began, so those are announced as it's added; at the start, nothing is.
+  const add = (dir: string, arrived = false) => {
     if (watchers.has(dir)) return;
     const abs = join(root, dir);
     let w: FSWatcher;
@@ -77,7 +82,7 @@ function watchTree(root: string, changed: (rel: string) => void): { close: () =>
           // A folder that came is watched from now on; one that went stops being watched.
           let isDir = false;
           try { isDir = statSync(join(root, rel)).isDirectory(); } catch {}
-          if (isDir) add(rel); else if (watchers.has(rel)) unwatch(rel);
+          if (isDir) add(rel, true); else if (watchers.has(rel)) unwatch(rel);
         }
         changed(rel);
       });
@@ -90,7 +95,9 @@ function watchTree(root: string, changed: (rel: string) => void): { close: () =>
     try { entries = readdirSync(abs, { withFileTypes: true }); } catch {}
     for (const e of entries) {
       const rel = dir ? `${dir}/${e.name}` : e.name;
-      if (e.isDirectory() && !skipped(rel)) add(rel);
+      if (skipped(rel)) continue;
+      if (e.isDirectory()) add(rel, arrived);
+      else if (arrived) changed(rel);
     }
   };
   add("");
@@ -156,7 +163,10 @@ function watchCanvases(root: string, poll: number | undefined, announce: (event:
       if (rel === LIBRARY_FILE) return announceLibrary(root, announce);
       if (!rel.endsWith(".excalidraw")) return announce({ type: "projects" }); // a folder came or went
       const abs = resolve(root, rel);
-      if (!existsSync(abs)) return announce({ type: "projects" });
+      if (!existsSync(abs)) {
+        announce({ type: "gone", path: rel }); // deleted, or moved: a page with it open says so (and looks for it)
+        return announce({ type: "projects" });
+      }
       const content = readFileSync(abs, "utf8");
       try {
         parseCanvas(content);
@@ -220,8 +230,12 @@ export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHo
         if (req.method === "PUT") {
           // The page says which version it edited (x-base-hash). If the file has moved on since, it gets the new
           // version back (409) and merges before saving again, so nothing written on disk is ever lost.
+          // A file that's gone was deleted or moved on disk (or from another page): a save never puts it back, unless the
+          // page says it means to (`x-base-hash: none`, "there's no file"), and then only if there's still none.
           const current = existsSync(abs) ? readFileSync(abs, "utf8") : undefined;
-          if (current !== undefined && req.headers["x-base-hash"] !== contentHash(current)) return loaded(current, 409);
+          const base = req.headers["x-base-hash"];
+          if (current === undefined && base !== NO_FILE) return json(req, res, 410, { error: "It isn't there any more: it was deleted or moved." });
+          if (current !== undefined && base !== contentHash(current)) return loaded(current, 409);
           const content = await readBody(req);
           JSON.parse(content);
           writeAtomic(abs, content.endsWith("\n") ? content : `${content}\n`);

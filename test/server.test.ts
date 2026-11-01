@@ -1,6 +1,6 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { request, type IncomingHttpHeaders } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -133,10 +133,13 @@ test("a path starting with // is a 404, and the server carries on", async () => 
  * Resolves once the server announces `rel` with the content `write` puts there. The watcher can take a moment to
  * start (FSEvents on macOS), so it writes every 300 ms until the change is seen, up to 5 s.
  */
-function announced(rel: string, content: string, write: () => void, to = app) {
+/** Waits for the event of this write: a change to `content`, or with null, the file gone. */
+function announced(rel: string, content: string | null, write: () => void, to = app) {
   const { port } = new URL(to.url);
   const events: any[] = [];
-  const isThisWrite = (e: any) => (e.type === "changed" || e.type === "library") && e.path === rel && e.hash === contentHash(content);
+  const isThisWrite = (e: any) => content === null
+    ? e.type === "gone" && e.path === rel
+    : (e.type === "changed" || e.type === "library") && e.path === rel && e.hash === contentHash(content);
   return new Promise<void>((ok, fail) => {
     let poke: NodeJS.Timeout | undefined;
     const req = request({ host: "127.0.0.1", port, path: "/api/events", headers: { host: `localhost:${port}` } }, (res) => {
@@ -166,6 +169,35 @@ test("a change on disk is announced to the page", async () => {
 test("a change on disk is still announced after a save renamed a new file over it", async () => {
   await announced("team/alpha/b.excalidraw", scene(6), () => writeAtomic(join(root, "team/alpha/b.excalidraw"), scene(6)));
   await announced("team/alpha/b.excalidraw", scene(7), () => writeFileSync(join(root, "team/alpha/b.excalidraw"), scene(7)));
+});
+
+test("a canvas deleted or moved on disk is announced as gone, and a save never puts it back", async () => {
+  const file = join(root, "team/alpha/doomed.excalidraw");
+  writeFileSync(file, scene(2));
+  const { hash } = (await call("GET", "/api/canvas?path=team/alpha/doomed.excalidraw")).json;
+  await announced("team/alpha/doomed.excalidraw", null, () => rmSync(file, { force: true }));
+  const put = (base: string, n: number) => call("PUT", "/api/canvas?path=team/alpha/doomed.excalidraw", { body: scene(n), headers: { "x-base-hash": base } });
+  assert.equal((await put(hash, 3)).status, 410);
+  assert.equal((await put("", 3)).status, 410);
+  assert.equal(existsSync(file), false);
+  // Unless the page means to put it back ("none": there's no file), and only while there's still none.
+  assert.equal((await put("none", 4)).status, 200);
+  assert.equal(readFileSync(file, "utf8"), `${scene(4)}\n`);
+  const again = await put("none", 5);
+  assert.equal(again.status, 409);
+  assert.equal(again.json.hash, contentHash(`${scene(4)}\n`));
+  rmSync(file);
+});
+
+// On Linux a new folder's watch starts after the folder is made, so a canvas that came with it (a `git mv` into a new
+// folder, a checkout) was never announced.
+test("a canvas that arrives with a new folder is announced", async () => {
+  writeFileSync(join(root, "mover.excalidraw"), scene(9));
+  await announced("arrived/with/mover.excalidraw", scene(9), () => {
+    if (!existsSync(join(root, "mover.excalidraw"))) return;
+    mkdirSync(join(root, "arrived/with"), { recursive: true });
+    renameSync(join(root, "mover.excalidraw"), join(root, "arrived/with/mover.excalidraw"));
+  });
 });
 
 test("canvases in a folder made after the server started are watched", async () => {

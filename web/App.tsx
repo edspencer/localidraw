@@ -42,6 +42,7 @@ export function App() {
         const e = JSON.parse(m.data);
         if (e.type === "projects") void refresh();
         if (e.type === "changed") onDiskChange.current(e.path, e.hash);
+        if (e.type === "gone") onDiskChange.current(e.path, null);
         if (e.type === "library") void library.onDisk(e.hash);
       };
       events.onerror = () => {
@@ -90,9 +91,8 @@ export function App() {
     try {
       await canvases.current.release(from);
       const { path: moved } = await moveCanvas(from, to);
-      prefs.moveViewport(from, moved);
-      canvases.current.follow(from, moved); // the open one stays on screen as it is, saving to its new path
-      if (from === pathFromUrl()) open(moved, true);
+      canvases.current.follow(from, moved); // the open one stays on screen as it is, saving to its new path (onMoved)
+      prefs.moveViewport(from, moved); // (and one that isn't open)
       await refresh();
       return null;
     } catch (err) {
@@ -140,7 +140,8 @@ export function App() {
     <div className="ld-app">
       {offline && <div className="ld-offline">Localidraw isn't running: start it again and this page reconnects.</div>}
       {path
-        ? <CanvasView path={path} sidebar={tab} onDiskChange={(h) => { onDiskChange.current = h; }} control={(c) => { canvases.current = c; }} />
+        ? <CanvasView path={path} sidebar={tab} onDiskChange={(h) => { onDiskChange.current = h; }} control={(c) => { canvases.current = c; }}
+            onMoved={(from, to) => { prefs.moveViewport(from, to); if (from === pathFromUrl()) open(to, true); }} />
         : <EmptyFolder rootName={rootName} onCreate={create} {...trashProps} />}
     </div>
   );
