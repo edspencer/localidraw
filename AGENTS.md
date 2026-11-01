@@ -35,6 +35,8 @@ For agents (and people) developing Localidraw itself.
 - `web/`: the page. `App.tsx` (the open canvas, the projects, the server's events), `CanvasView.tsx` (Excalidraw on
   one file: load, autosave, merge), `CanvasesTab.tsx` (the sidebar tab), `merge.ts` (pure, tested in Node),
   `styles.css`. Bundled by `scripts/build-web.mjs` (esbuild) into `dist/web`, with Excalidraw's fonts.
+- `brand/`: the mark, lockups, icons and social cards, all made from `mark.svg` by `generate.mjs` (which also
+  writes `web/favicon.svg`). [brand/README.md](brand/README.md) has the rules.
 - `test/`: `node:test` suites.
 - `e2e/`: Playwright browser tests, and the theme snapshots ([e2e/README.md](e2e/README.md)). They wait on
   `window.localidraw` (`TestHandle` in `web/CanvasView.tsx`), never on sleeps.
