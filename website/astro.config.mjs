@@ -49,6 +49,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Getting started', slug: 'getting-started' },
 						{ label: 'The Canvases sidebar', slug: 'canvases' },
+						{ label: 'The Library', slug: 'library' },
 					],
 				},
 				{

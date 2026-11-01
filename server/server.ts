@@ -2,7 +2,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { existsSync, readdirSync, readFileSync, statSync, watch, type Dirent, type FSWatcher } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { contentHash, EMPTY_SCENE, listProjects, parseCanvas, relativePath, resolveInRoot, SKIPPED_DIRS, writeAtomic } from "./files.ts";
+import { contentHash, EMPTY_SCENE, LIBRARY_FILE, listProjects, parseCanvas, parseLibrary, relativePath, resolveInRoot, SKIPPED_DIRS, writeAtomic } from "./files.ts";
 import { pkg } from "./package.ts";
 import { guard, isLoopbackAddress } from "./security.ts";
 import { send, staticFiles } from "./static.ts";
@@ -95,7 +95,7 @@ function watchTree(root: string, changed: (rel: string) => void): { close: () =>
 
 /**
  * Calls `changed` like watchTree, but by looking: every `interval` ms it lists the folders and canvases under the root
- * and compares each canvas's size, modification time and inode with the last look. For network mounts (NFS, SMB),
+ * and compares each canvas's (and the Library's) size, modification time and inode with the last look. For network mounts (NFS, SMB),
  * where the file events for another machine's writes never arrive.
  */
 function pollTree(root: string, interval: number, changed: (rel: string) => void): { close: () => void } {
@@ -108,7 +108,7 @@ function pollTree(root: string, interval: number, changed: (rel: string) => void
         const rel = dir ? `${dir}/${e.name}` : e.name;
         if (skipped(rel)) continue;
         if (e.isDirectory()) { seen.set(`${rel}/`, ""); walk(rel); }
-        else if (e.name.endsWith(".excalidraw")) {
+        else if (e.name.endsWith(".excalidraw") || rel === LIBRARY_FILE) {
           try {
             const s = statSync(join(root, rel));
             seen.set(rel, `${s.size}:${s.mtimeMs}:${s.ino}`);
@@ -132,6 +132,15 @@ function pollTree(root: string, interval: number, changed: (rel: string) => void
   return { close: () => clearTimeout(timer) };
 }
 
+/** Tells the pages the Library file changed: its new hash, or null once it's gone. Half-written, it waits for the rest. */
+function announceLibrary(root: string, announce: (event: object) => void) {
+  const abs = join(root, LIBRARY_FILE);
+  if (!existsSync(abs)) return announce({ type: "library", path: LIBRARY_FILE, hash: null });
+  const content = readFileSync(abs, "utf8");
+  try { parseLibrary(content); } catch { return; }
+  announce({ type: "library", path: LIBRARY_FILE, hash: contentHash(content) });
+}
+
 /** Watches the root for canvas changes and tells every connected page, debounced per file. */
 function watchCanvases(root: string, poll: number | undefined, announce: (event: object) => void): { close: () => void } {
   const pending = new Map<string, NodeJS.Timeout>();
@@ -140,6 +149,7 @@ function watchCanvases(root: string, poll: number | undefined, announce: (event:
     clearTimeout(pending.get(rel));
     pending.set(rel, setTimeout(() => {
       pending.delete(rel);
+      if (rel === LIBRARY_FILE) return announceLibrary(root, announce);
       if (!rel.endsWith(".excalidraw")) return announce({ type: "projects" }); // a folder came or went
       const abs = resolve(root, rel);
       if (!existsSync(abs)) return announce({ type: "projects" });
@@ -210,6 +220,28 @@ export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHo
           if (current !== undefined && req.headers["x-base-hash"] !== contentHash(current)) return loaded(current, 409);
           const content = await readBody(req);
           JSON.parse(content);
+          writeAtomic(abs, content.endsWith("\n") ? content : `${content}\n`);
+          return json(req, res, 200, { hash: contentHash(readFileSync(abs, "utf8")) });
+        }
+      }
+      if (path === "/api/library") {
+        // The folder's own Library, when it has one. Never created here: the user makes the file to share one.
+        const abs = join(root, LIBRARY_FILE);
+        const current = existsSync(abs) ? readFileSync(abs, "utf8") : undefined;
+        const loaded = (content: string, status: number) => {
+          try {
+            return json(req, res, status, { shared: true, hash: contentHash(content), library: parseLibrary(content) });
+          } catch (err) {
+            return json(req, res, 422, { error: (err as Error).message });
+          }
+        };
+        if (req.method === "GET") return current === undefined ? json(req, res, 200, { shared: false }) : loaded(current, 200);
+        if (req.method === "PUT") {
+          if (current === undefined) return json(req, res, 404, { error: `There's no ${LIBRARY_FILE} in the folder.` });
+          // As for a canvas: a save based on an older version gets the newer one back to merge.
+          if (req.headers["x-base-hash"] !== contentHash(current)) return loaded(current, 409);
+          const content = await readBody(req);
+          try { parseLibrary(content); } catch (err) { return json(req, res, 400, { error: (err as Error).message }); }
           writeAtomic(abs, content.endsWith("\n") ? content : `${content}\n`);
           return json(req, res, 200, { hash: contentHash(readFileSync(abs, "utf8")) });
         }

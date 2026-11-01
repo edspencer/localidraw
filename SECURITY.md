@@ -32,9 +32,10 @@ built to guarantee, and so what counts as a vulnerability if broken:
   from DNS rebinding.
 - **Only canvases inside the folder.** Every path the page sends is resolved inside the folder you started it in,
   outside dot-folders and `node_modules`, and must be a `.excalidraw` file. Nothing outside it can be read or
-  written. (`resolveInRoot` in `server/files.ts`.)
-- **Nothing written on disk is lost.** Localidraw creates and saves canvases. It never deletes or renames a file, and
-  a save based on an older version of a file is refused rather than overwriting it. Writes are atomic: a temporary
+  written. (`resolveInRoot` in `server/files.ts`.) The one other file it reads and writes is the folder's shared
+  Library, `library.excalidrawlib` at its top, at a fixed path the page can't choose, and only if it already exists.
+- **Nothing written on disk is lost.** Localidraw creates and saves canvases (and saves the Library file). It never
+  deletes or renames a file, and a save based on an older version of a file is refused rather than overwriting it. Writes are atomic: a temporary
   file, then a rename.
 
 Out of scope: anything that needs an attacker who can already run code as you, or write to the folder you're

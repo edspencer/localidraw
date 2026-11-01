@@ -23,6 +23,9 @@ export class Folder {
     mkdirSync(dirname(join(this.root, path)), { recursive: true });
     writeFileSync(join(this.root, path), `${JSON.stringify(scene, null, 2)}\n`);
   }
+  /** Writes any content straight over a file. */
+  writeRaw(path: string, content: string) { writeFileSync(join(this.root, path), content); }
+  remove(path: string) { rmSync(join(this.root, path)); }
 }
 
 type Fixtures = {

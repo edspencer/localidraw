@@ -37,6 +37,29 @@ export function parseCanvas(content: string): { elements: unknown[] } {
   return scene;
 }
 
+/** The folder's shared Library (Excalidraw's reusable shapes), used when it exists. Only ever at the root. */
+export const LIBRARY_FILE = "library.excalidrawlib";
+
+export const EMPTY_LIBRARY = { type: "excalidrawlib", version: 2, source: "https://github.com/edspencer/localidraw", libraryItems: [] };
+
+/**
+ * A library file's content: version 2 (`libraryItems`) or version 1 (`library`). An empty file is an empty Library,
+ * so `touch library.excalidrawlib` starts one. Anything else throws, so the page won't load it and save over it.
+ */
+export function parseLibrary(content: string): { libraryItems?: unknown[]; library?: unknown[] } {
+  if (!content.trim()) return structuredClone(EMPTY_LIBRARY);
+  let lib: any;
+  try {
+    lib = JSON.parse(content);
+  } catch (err) {
+    throw new Error(`It isn't valid JSON: ${(err as Error).message}.`);
+  }
+  if (!Array.isArray(lib?.libraryItems) && !Array.isArray(lib?.library)) {
+    throw new Error("It's JSON, but not an Excalidraw library.");
+  }
+  return lib;
+}
+
 export const contentHash = (content: string) => createHash("sha256").update(content).digest("hex").slice(0, 16);
 
 const toPosix = (p: string) => p.split(sep).join("/");

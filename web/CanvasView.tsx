@@ -7,6 +7,7 @@ import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from "@excalidraw
 import { getCanvas, putCanvas, type Loaded } from "./api.ts";
 import { changedSince, mergeScenes, versionsOf } from "./merge.ts";
 import { FoldersIcon } from "./icons.tsx";
+import { library } from "./library.ts";
 import { prefs } from "./prefs.ts";
 import { Screen } from "./Screen.tsx";
 
@@ -27,6 +28,8 @@ export type TestHandle = {
    * switched away from whose last save isn't done yet.
    */
   saves: () => { state: "idle" | "due" | "saving"; checked: number; written: number; leaving: number };
+  /** The ids of the items in Excalidraw's Library (web/library.ts). */
+  library: () => string[];
   convertToExcalidrawElements: typeof convertToExcalidrawElements;
 };
 declare global { interface Window { localidraw?: TestHandle } }
@@ -246,7 +249,7 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
     window.localidraw = { path: s.path, api: a, convertToExcalidrawElements, saves: () => ({
       state: s.saving || s.again ? "saving" : s.timer !== undefined ? "due" : "idle", checked: s.checked, written: s.written,
       leaving: leaving.current.size,
-    }) };
+    }), library: library.ids };
   };
 
   // Each time the URL names another canvas: load it, then show it. Until then, the one before stays on screen.
@@ -331,9 +334,11 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
       excalidrawAPI={(a) => {
         api.current = a;
         expose(a);
+        void library.attach(a);
         if (initial.fit) setTimeout(() => fitToView(a), 300);
       }}
       onChange={onChange}
+      onLibraryChange={library.changed}
       name={shown.split("/").pop()?.replace(/\.excalidraw$/, "")}
       // The page is all canvas, so shortcuts work wherever the focus is (Excalidraw still skips text fields).
       handleKeyboardGlobally

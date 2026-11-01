@@ -1,6 +1,6 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { request, type IncomingHttpHeaders } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -136,7 +136,7 @@ test("a path starting with // is a 404, and the server carries on", async () => 
 function announced(rel: string, content: string, write: () => void, to = app) {
   const { port } = new URL(to.url);
   const events: any[] = [];
-  const isThisWrite = (e: any) => e.type === "changed" && e.path === rel && e.hash === contentHash(content);
+  const isThisWrite = (e: any) => (e.type === "changed" || e.type === "library") && e.path === rel && e.hash === contentHash(content);
   return new Promise<void>((ok, fail) => {
     let poke: NodeJS.Timeout | undefined;
     const req = request({ host: "127.0.0.1", port, path: "/api/events", headers: { host: `localhost:${port}` } }, (res) => {
@@ -315,5 +315,48 @@ test("HEAD answers like GET, without the body", async () => {
     const r = await call("HEAD", path);
     assert.equal(r.status, 200, path);
     assert.equal(r.raw.length, 0, path);
+  }
+});
+
+const lib = (...ids: string[]) => JSON.stringify({ type: "excalidrawlib", version: 2, libraryItems: ids.map((id) => ({ id, status: "unpublished", elements: [] })) });
+
+test("the Library: none until the folder has library.excalidrawlib, and never made by a save", async () => {
+  const file = join(root, "library.excalidrawlib");
+  assert.deepEqual((await call("GET", "/api/library")).json, { shared: false });
+  const put = await call("PUT", "/api/library", { body: lib("a"), headers: { "x-base-hash": "" } });
+  assert.equal(put.status, 404);
+  assert.equal(existsSync(file), false);
+
+  writeFileSync(file, ""); // `touch library.excalidrawlib`
+  const empty = await call("GET", "/api/library");
+  assert.equal(empty.json.shared, true);
+  assert.deepEqual(empty.json.library.libraryItems, []);
+  const saved = await call("PUT", "/api/library", { body: lib("a"), headers: { "x-base-hash": empty.json.hash } });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.json.hash, contentHash(readFileSync(file, "utf8")));
+
+  // Based on an older version: the newer one comes back to merge, and the file is left alone.
+  const stale = await call("PUT", "/api/library", { body: lib("b"), headers: { "x-base-hash": empty.json.hash } });
+  assert.equal(stale.status, 409);
+  assert.deepEqual(stale.json.library.libraryItems.map((i: any) => i.id), ["a"]);
+  // Not a library: refused, not written.
+  const bad = await call("PUT", "/api/library", { body: JSON.stringify({ hello: 1 }), headers: { "x-base-hash": saved.json.hash } });
+  assert.equal(bad.status, 400);
+  assert.deepEqual(JSON.parse(readFileSync(file, "utf8")).libraryItems.map((i: any) => i.id), ["a"]);
+  writeFileSync(file, "{ half");
+  assert.equal((await call("GET", "/api/library")).status, 422);
+  unlinkSync(file);
+});
+
+test("a change to the Library on disk is announced, by file events and by polling", async () => {
+  const file = join(root, "library.excalidrawlib");
+  await announced("library.excalidrawlib", lib("x"), () => writeFileSync(file, lib("x")));
+  await announced("library.excalidrawlib", lib("y"), () => writeAtomic(file, lib("y")));
+  const polled = await startServer({ root, port: 0, webDir: web, poll: 100 });
+  try {
+    await announced("library.excalidrawlib", lib("z"), () => writeFileSync(file, lib("z")), polled);
+  } finally {
+    await polled.close();
+    unlinkSync(file);
   }
 });

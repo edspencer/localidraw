@@ -38,3 +38,18 @@ export function mergeScenes<E extends Versioned>(local: readonly E[], remote: re
 export function changedSince(elements: readonly Versioned[], base: ReadonlyMap<string, number>): boolean {
   return elements.some((e) => (base.has(e.id) ? base.get(e.id) !== e.version : !e.isDeleted));
 }
+
+/**
+ * The Library on screen with the Library file merged in, by item (an item's shapes don't change once it's made).
+ * `base` holds the ids as of the last load or save:
+ * - an item added on either side since is kept (the disk's new ones first, as Excalidraw puts the newest first);
+ * - an item removed on either side since is removed;
+ * - the rest keep the screen's order.
+ */
+export function mergeLibraries<I extends { id: string }>(local: readonly I[], remote: readonly I[], base: ReadonlySet<string>): I[] {
+  const onDisk = new Set(remote.map((i) => i.id));
+  const onScreen = new Set(local.map((i) => i.id));
+  const addedThere = remote.filter((i) => !base.has(i.id) && !onScreen.has(i.id));
+  const kept = local.filter((i) => !base.has(i.id) || onDisk.has(i.id));
+  return [...addedThere, ...kept];
+}
