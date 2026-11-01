@@ -6,6 +6,7 @@ Playwright, in Chromium, against the real server and real files.
   the first view.
 - `switching.spec.ts` covers switching canvases in the one Excalidraw: a save still due or on its way when you
   switch, an agent's edit to the canvas you left, undo and the view staying with their canvas.
+- `library.spec.ts` covers the Library: kept in the browser, or in the folder's `library.excalidrawlib`.
 - `snapshots.spec.ts` covers the theme snapshots: what Localidraw adds to Excalidraw's UI, in light and dark.
 
 Each test starts its own server on port 0, over a temporary copy of a folder in `folders/` (`fixtures.ts`), so the
@@ -25,6 +26,7 @@ The tests never sleep. The page exposes a small handle for them, `window.localid
 - the open canvas's path and Excalidraw API;
 - `saves()`, the open canvas's autosave state (`idle`, `due` or `saving`), counts of its checks and writes, and how
   many canvases you've switched away from are still saving;
+- `library()`, the ids of the items in Excalidraw's Library;
 - Excalidraw's `convertToExcalidrawElements`. It can't run in Node, so a test uses it to write the skeletons a
   coding agent would.
 

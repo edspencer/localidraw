@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changedSince, mergeScenes, versionsOf, type Versioned } from "../web/merge.ts";
+import { changedSince, mergeLibraries, mergeScenes, versionsOf, type Versioned } from "../web/merge.ts";
 
 const el = (id: string, version: number, index = id, isDeleted = false): Versioned => ({ id, version, index, isDeleted });
 const ids = (es: Versioned[]) => es.map((e) => `${e.id}@${e.version}${e.isDeleted ? "x" : ""}`);
@@ -49,4 +49,15 @@ test("changedSince: looking around isn't a change; drawing and deleting are", ()
   assert.equal(changedSince([el("a", 2)], base), true);
   assert.equal(changedSince([el("a", 1), el("new", 1)], base), true);
   assert.equal(changedSince([el("a", 1), el("drawn-and-deleted", 2, "b", true)], base), false);
+});
+
+test("Library items added on either side are kept, and removed on either side are removed", () => {
+  const items = (...ids: string[]) => ids.map((id) => ({ id }));
+  const base = new Set(["a", "b", "c"]);
+  // Here: removed b, added x. On disk: removed c, added y.
+  assert.deepEqual(mergeLibraries(items("x", "a", "c"), items("y", "a", "b"), base).map((i) => i.id), ["y", "x", "a"]);
+  // Nothing changed on either side.
+  assert.deepEqual(mergeLibraries(items("a", "b", "c"), items("a", "b", "c"), base).map((i) => i.id), ["a", "b", "c"]);
+  // The same new item on both sides isn't doubled.
+  assert.deepEqual(mergeLibraries(items("n", "a", "b", "c"), items("n", "a", "b", "c"), base).map((i) => i.id), ["n", "a", "b", "c"]);
 });

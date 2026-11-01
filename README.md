@@ -25,6 +25,9 @@ machine. There's no export step and no cloud copy: what you draw is saved straig
 - **Draw alongside your coding agent.** When something else changes a file (an agent editing the JSON, a
   `git pull`), the canvas updates within a second. The change is merged per element with what you've drawn since,
   so neither of you loses work.
+- **A Library to share.** Excalidraw's Library of reusable shapes is kept in your browser, or, with a
+  `library.excalidrawlib` at the top of the folder, in that file, shared and merged like a canvas
+  ([the Library](https://localidraw.edspencer.net/library/)).
 - **Looks like Excalidraw, because it is.** It's Excalidraw 0.18.1, the version the VS Code extension uses, so files
   stay compatible both ways. Localidraw's own additions follow Excalidraw's UI conventions
   ([docs/AESTHETIC.md](docs/AESTHETIC.md)).

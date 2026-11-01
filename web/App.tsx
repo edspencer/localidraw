@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createCanvas, getProjects, type Project } from "./api.ts";
 import { CanvasesTab } from "./CanvasesTab.tsx";
 import { CanvasView } from "./CanvasView.tsx";
+import { library } from "./library.ts";
 import { Screen } from "./Screen.tsx";
 
 const pathFromUrl = () => new URLSearchParams(location.search).get("canvas");
@@ -38,6 +39,7 @@ export function App() {
         const e = JSON.parse(m.data);
         if (e.type === "projects") void refresh();
         if (e.type === "changed") onDiskChange.current(e.path, e.hash);
+        if (e.type === "library") void library.onDisk(e.hash);
       };
       events.onerror = () => {
         lost = true;
@@ -54,6 +56,7 @@ export function App() {
         lost = false;
         void refresh();
         onDiskChange.current(null, null);
+        void library.onDisk(undefined);
       };
     };
     connect();

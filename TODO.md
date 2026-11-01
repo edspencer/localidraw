@@ -16,8 +16,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
 
 - [ ] **Rename, move and delete canvases from the sidebar.** Today that's `git mv`/`git rm` (or Finder), and the
   server only creates and saves. Deleting needs a decision about safety (a trash folder? git only?).
-- [ ] **Excalidraw's Library is lost on reload.** Persist it, in `localStorage` or as a `.excalidrawlib` in the
-  folder, so a project can share one.
 - [ ] **Tell the user when a change of theirs lost** to a change on disk (the same element edited on both sides at
   once). The merge resolves it silently today.
 - [ ] **Show empty folders as projects?** Folders with no canvases are hidden, and git doesn't keep empty folders
@@ -52,7 +50,7 @@ Roughly in priority order within each section. Strike items out, or delete them,
   it can see new ones arrive; a tree with many such folders costs an inotify watch each
   (`fs.inotify.max_user_watches`).
 - [ ] **Other formats?** `.excalidraw.svg` and `.excalidraw.png` (a scene embedded in an image, as the VS Code
-  extension and Obsidian write), and `.excalidrawlib`.
+  extension and Obsidian write). (`library.excalidrawlib` at the root is the shared Library.)
 - [ ] **11 `npm audit` warnings**, all in devDependencies (Excalidraw's own dependencies). The package ships none,
   but keep an eye on them.
 

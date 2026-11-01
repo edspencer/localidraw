@@ -59,7 +59,8 @@ servers on the same folder would each save without knowing about the other's pag
 
 - **The drawings are the files.** Nothing else is written into them: no viewport, no theme, no sidebar state.
 - **The browser keeps your preferences:** the viewport per canvas, the theme and whether the sidebar is docked, in
-  `localStorage`. They follow the browser, not the folder.
+  `localStorage`. They follow the browser, not the folder. So does Excalidraw's Library, unless the folder has a
+  [`library.excalidrawlib`](/library/) to share it in.
 - **The open canvas is in the URL**, as `?canvas=path/in/folder.excalidraw`, so you can bookmark one.
 
 ## Safety
@@ -68,11 +69,12 @@ Localidraw listens on `127.0.0.1`, so nothing else on your network can reach it.
 `Origin` isn't localhost, so a web page you visit can't read or write your canvases through it. Hosting it is
 something you turn on, by name: see [Self-hosting](/self-hosting/).
 
-It only touches `.excalidraw` files inside the folder you gave it, outside dot-folders and `node_modules`. It creates
-and saves canvases; it never deletes or renames anything. Do that in your shell, your file manager or git.
+It only touches `.excalidraw` files inside the folder you gave it, outside dot-folders and `node_modules`, and the
+folder's `library.excalidrawlib` if you made one. It creates and saves canvases; it never deletes or renames anything. Do that in your shell, your file manager or git.
 
 ## Next
 
 - [The Canvases sidebar](/canvases/): projects, the filter and New canvas.
+- [The Library](/library/): reusable shapes, in the browser or shared in the folder.
 - [Saving and merging](/saving-and-merging/): what happens when a file changes on disk.
 - [Working with coding agents](/agents/): how an agent should edit a canvas.

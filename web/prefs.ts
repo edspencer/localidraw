@@ -1,4 +1,5 @@
-// What the browser remembers between visits; none of it goes in the canvas files.
+// What the browser remembers between visits; none of it goes in the canvas files. (The Library too, unless the folder
+// has a library.excalidrawlib.)
 import type { AppState } from "@excalidraw/excalidraw/types";
 
 const read = <T,>(key: string, fallback: T): T => {
@@ -19,6 +20,9 @@ export const prefs = {
   theme: () => read<AppState["theme"]>("theme", "light"),
   docked: () => read("docked", true),
   setDocked: (docked: boolean) => write("docked", docked),
+  /** The Library, when the folder has no library.excalidrawlib to keep it in (web/library.ts). */
+  library: () => read<unknown[]>("library", []),
+  setLibrary: (items: unknown) => write("library", items),
   // Open on the Canvases tab the first time.
   openSidebar: () => read<AppState["openSidebar"]>("openSidebar", { name: "default", tab: "canvases" }),
   /** Keeps the viewport per canvas, and the theme and sidebar for all of them, as they change. */

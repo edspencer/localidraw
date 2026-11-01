@@ -14,7 +14,8 @@ For agents (and people) developing Localidraw itself.
   `writeAtomic` (a temporary file, then a rename). Don't add a write path around either.
 - **Only canvases inside the folder.** Every path from the page goes through `resolveInRoot` in `server/files.ts`:
   inside the root, not in a dot-folder or `node_modules`, and a `.excalidraw` file. The server creates and saves
-  canvases; it never deletes or renames anything. Renames and deletes are the user's, in their shell or git.
+  canvases (and saves `<root>/library.excalidrawlib`, a fixed path, when it exists); it never deletes or renames
+  anything. Renames and deletes are the user's, in their shell or git.
 - **Localhost by default; hosting is opt-in, and never without allowed hosts.** The server binds 127.0.0.1 unless
   `--host` says otherwise, and `startServer` and the CLI both refuse a non-loopback `--host` without at least one
   `--allowed-host`. Every request goes through `guard` in `server/security.ts`: the `Host` must be loopback or an
@@ -25,7 +26,9 @@ For agents (and people) developing Localidraw itself.
 - **The default port is one constant**, `DEFAULT_PORT` in `server/port.ts`: 3729, "DRAW" on a phone keypad (not LOCA, 5622, which is Local Review's). The
   README and the docs site (`website/src/site.mjs`) say it too; change them together (`test/docs.test.ts` checks).
 - **The browser keeps preferences, the files keep drawings.** Viewport, theme and sidebar state live in
-  `localStorage` (`web/prefs.ts`), never in a `.excalidraw` file.
+  `localStorage` (`web/prefs.ts`), never in a `.excalidraw` file. Excalidraw's Library lives in `localStorage` too,
+  unless the root has a `library.excalidrawlib` (`web/library.ts`): then it's that file, saved like a canvas (base
+  hash, 409, merge by item, `writeAtomic`) and only when the Library changed. The server never creates that file.
 - **Excalidraw is pinned at 0.18.1**, the version the VS Code extension (`pomdtr.excalidraw-editor`) uses, so files
   round-trip between them. Moving to a newer Excalidraw means checking that the extension can still open what we save.
   React stays at 18: Excalidraw 0.18's bundled Radix packages declare React 18 or below.
