@@ -31,3 +31,11 @@ test("the port spells DRAW on a phone keypad, as the docs say", () => {
   const keypad: Record<string, string> = { D: "3", R: "7", A: "2", W: "9" };
   assert.equal(Number([..."DRAW"].map((c) => keypad[c]).join("")), DEFAULT_PORT);
 });
+
+test("CI's Playwright image matches the pinned @playwright/test, so the snapshots' browsers are the ones it drives", () => {
+  const version = JSON.parse(read("package.json")).devDependencies["@playwright/test"];
+  assert.match(version, /^\d+\.\d+\.\d+$/, "@playwright/test is pinned to an exact version");
+  const images = [...read(".github/workflows/ci.yml").matchAll(/mcr\.microsoft\.com\/playwright:v([\d.]+)-/g)].map((m) => m[1]);
+  assert.ok(images.length > 0, "ci.yml runs the browser tests in the Playwright image");
+  assert.deepEqual(images.filter((v) => v !== version), []);
+});

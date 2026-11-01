@@ -42,6 +42,32 @@ jobs:
       - name: Smoke-test the npm package
         run: npm run smoke:pack
 
+  # The browser tests (e2e/), the theme snapshots included. They run in the official Playwright image, whose tag
+  # matches @playwright/test (test/docs.test.ts checks), so screenshots compare against baselines made in the same
+  # image: e2e/README.md.
+  e2e:
+    name: Browser tests (Chromium)
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --ipc=host --init
+    env:
+      LOCALIDRAW_SNAPSHOTS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci
+      - name: Browser tests
+        run: npm run test:e2e
+      - name: Upload the report, traces and screenshot diffs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
   # Windows is best effort for now: paths, the recursive fs.watch and `explorer` for --open are untested there
   # (TODO.md, "Compatibility and platforms"). This leg reports what fails without blocking a merge: it's
   # continue-on-error, and ci-passed doesn't wait for it.
@@ -72,7 +98,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [test]
+    needs: [test, e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to have passed

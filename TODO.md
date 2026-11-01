@@ -35,20 +35,6 @@ be exposed. Needed:
 
 ## The editor
 
-- [ ] **Browser tests in the repo** (Playwright). The spike checked these by hand in headless Chrome, and they should
-  become tests:
-  - opening and scrolling a canvas doesn't write it;
-  - drawing autosaves;
-  - an external edit (a skeleton applied with `convertToExcalidrawElements`) appears and keeps the drawing;
-  - a drawing and an edit on disk made at the same moment both survive;
-  - a deletion on disk sticks;
-  - shortcuts work straight after a sidebar click, and ⌘S and ⌘Z save;
-  - a first open fits the drawing beside the docked sidebar;
-  - an empty canvas doesn't zoom in.
-
-  Only `web/merge.ts` is tested today.
-- [ ] **Screenshot checks of both themes** for UI changes (see `docs/AESTHETIC.md`), perhaps as visual-regression
-  snapshots.
 - [ ] **Rename, move and delete canvases from the sidebar.** Today that's `git mv`/`git rm` (or Finder), and the
   server only creates and saves. Deleting needs a decision about safety (a trash folder? git only?).
 - [ ] **No remount when switching canvases.** Each switch mounts a new Excalidraw, so the canvas and sidebar flash.

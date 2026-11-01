@@ -1,0 +1,39 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "localidraw-e2e",
+  "elements": [
+    {
+      "id": "note",
+      "type": "rectangle",
+      "x": 0,
+      "y": 0,
+      "width": 160,
+      "height": 100,
+      "version": 1,
+      "versionNonce": 1,
+      "seed": 1,
+      "strokeColor": "#1e1e1e",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "roughness": 1,
+      "opacity": 100,
+      "angle": 0,
+      "isDeleted": false,
+      "boundElements": null,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "updated": 1,
+      "link": null,
+      "locked": false,
+      "index": "a0"
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff",
+    "gridSize": null
+  },
+  "files": {}
+}

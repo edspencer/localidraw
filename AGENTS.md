@@ -36,6 +36,8 @@ For agents (and people) developing Localidraw itself.
   one file: load, autosave, merge), `CanvasesTab.tsx` (the sidebar tab), `merge.ts` (pure, tested in Node),
   `styles.css`. Bundled by `scripts/build-web.mjs` (esbuild) into `dist/web`, with Excalidraw's fonts.
 - `test/`: `node:test` suites.
+- `e2e/`: Playwright browser tests, and the theme snapshots ([e2e/README.md](e2e/README.md)). They wait on
+  `window.localidraw` (`TestHandle` in `web/CanvasView.tsx`), never on sleeps.
 
 ## Commands
 
@@ -46,7 +48,10 @@ npm test              # node:test via tsx
 npm run typecheck
 npm run build         # dist/web (esbuild) + dist/server (tsc)
 npm run smoke:pack    # pack, install into a temp prefix, run it, check it serves and fits its size budget
+npm run test:e2e      # the browser tests (npx playwright install chromium, once)
+npm run test:e2e:snapshots  # those plus the theme snapshots, in Docker; -- --update-snapshots remakes them
 ```
 
 Run `npm test` and `npm run typecheck` before committing, and `npm run smoke:pack` when you change the build or
-`package.json` (`files`, `bin`, dependencies).
+`package.json` (`files`, `bin`, dependencies). Run `npm run test:e2e` when you change the page, and
+`npm run test:e2e:snapshots` when you change how it looks.
