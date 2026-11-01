@@ -6,6 +6,8 @@
     <title>Localidraw</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/static/app.css" />
+    <!-- In the dark theme, the page is dark before the script runs, rather than white (web/styles.css). -->
+    <script>try { if (JSON.parse(localStorage.getItem("localidraw:theme")) === "dark") document.documentElement.classList.add("ld-dark"); } catch {}</script>
     <!-- Excalidraw loads its fonts from here, so it works offline. -->
     <script>window.EXCALIDRAW_ASSET_PATH = "/static/assets/";</script>
   </head>

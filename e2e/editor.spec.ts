@@ -209,7 +209,11 @@ test("after the server comes back, the page catches up with what changed while i
   const stopped = app.close();
   app.server.closeAllConnections();
   await stopped;
-  await expect(page.locator(".ld-offline")).toBeVisible();
+  const offline = page.getByRole("status").filter({ hasText: "Localidraw isn't running" });
+  await expect(offline).toBeVisible();
+  // In the footer, clear of Excalidraw's toolbar (it used to sit over the middle of it).
+  const [notice, toolbar] = [await offline.boundingBox(), await page.locator(".App-toolbar").boundingBox()];
+  expect(notice!.y).toBeGreaterThan(toolbar!.y + toolbar!.height);
   // Changed while nothing was watching: a git pull, an agent, another editor.
   const scene = folder.scene("notes.excalidraw");
   const added = await fromSkeletons(page, [{ type: "rectangle", x: 0, y: 300, width: 200, height: 80 }]);
@@ -217,7 +221,7 @@ test("after the server comes back, the page catches up with what changed while i
   folder.write("later.excalidraw", { ...scene, elements: [] });
   app = await startServer({ root: folder.root, port: Number(port), webDir: join(import.meta.dirname, "../dist/web") });
 
-  await expect(page.locator(".ld-offline")).toBeHidden({ timeout: 15_000 });
+  await expect(offline).toBeHidden({ timeout: 15_000 });
   await expect.poll(async () => (await onScreen(page)).length).toBe(2);
   await expect(page.locator(".ld-row", { hasText: "later" })).toBeVisible();
   await app.close();
@@ -241,7 +245,7 @@ test("after a proxy answered 502 for the stopped server, the page still reconnec
   app.server.closeAllConnections();
   await stopped;
   await refused; // the browser's own reconnect met the 502, and it won't try again by itself
-  await expect(page.locator(".ld-offline")).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Localidraw isn't running" })).toBeVisible();
 
   const scene = folder.scene("notes.excalidraw");
   const added = await fromSkeletons(page, [{ type: "rectangle", x: 0, y: 300, width: 200, height: 80 }]);
@@ -249,7 +253,7 @@ test("after a proxy answered 502 for the stopped server, the page still reconnec
   app = await startServer({ root: folder.root, port: Number(port), webDir: join(import.meta.dirname, "../dist/web") });
   proxyDown = false;
 
-  await expect(page.locator(".ld-offline")).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByRole("status").filter({ hasText: "Localidraw isn't running" })).toBeHidden({ timeout: 15_000 });
   await expect.poll(async () => (await onScreen(page)).length).toBe(2);
   await app.close();
 });
@@ -341,4 +345,37 @@ test.describe("an edit of yours that lost to a change on disk", () => {
     expect(onDisk.find((e) => e.id === "box-b")!.y).toBe(boxB.y + 500); // theirs
     await expect(page.locator(".ld-notice")).toHaveCount(0);
   });
+});
+
+// Excalidraw draws a text element at the size in the file, and an agent can only guess that size: one guessed too
+// small was clipped. Its text is measured again once the font is in, which changes no version, so nothing is written.
+test("text an agent sized too small is measured again, on opening and on switching, without writing", async ({ page, folder, open }) => {
+  await open("plan.excalidraw");
+  const [label] = await fromSkeletons(page, [{ type: "text", x: 100, y: 100, text: "A label an agent sized too small", fontSize: 20 }]);
+  const scene = folder.scene("notes.excalidraw");
+  folder.write("notes.excalidraw", { ...scene, elements: [...scene.elements, { ...label, width: 30, height: 10 }] });
+  const written = folder.read("notes.excalidraw");
+  const textSize = () => page.evaluate(() => window.localidraw!.api.getSceneElements().filter((e) => e.type === "text").map((e) => [Math.round(e.width), Math.round(e.height)])[0]);
+  const truth = await page.evaluate(async (text) => {
+    await document.fonts.load('20px "Excalifont"', text);
+    const c = document.createElement("canvas").getContext("2d")!;
+    c.font = "20px Excalifont, Xiaolai, Segoe UI Emoji";
+    return Math.round(c.measureText(text).width);
+  }, label.text!);
+
+  await page.locator(".ld-row", { hasText: "notes" }).click(); // swapped in
+  await waitForCanvas(page, "notes.excalidraw");
+  await expect.poll(textSize).toEqual([truth, 25]);
+  await page.goto("/?canvas=notes.excalidraw"); // and opened first, as the page loads
+  await waitForCanvas(page, "notes.excalidraw");
+  await expect.poll(textSize).toEqual([truth, 25]);
+  await settled(page);
+  expect(folder.read("notes.excalidraw")).toBe(written);
+});
+
+test("in the dark theme, the page is dark before its script has run", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("localidraw:theme", JSON.stringify("dark")));
+  await page.route("**/static/app-*.js", (route) => route.abort()); // the page as it is before the script runs
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).toBe("rgb(18, 18, 18)");
 });

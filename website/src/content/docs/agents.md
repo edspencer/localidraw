@@ -49,9 +49,11 @@ The format is Excalidraw's own, documented in
 5. **Write the whole file, atomically**: write to a temporary file in the same folder and rename it over the canvas.
    Localidraw reads the file as soon as it changes. A half-written file won't be opened or saved over, but it shows as
    an error until the write finishes.
-6. **Give text room.** Excalidraw draws a text element at the `width` and `height` the file gives it, and doesn't
-   measure it again when it opens the file, so a box that's too small cuts the text off. In Excalifont (`fontFamily:
-   5`), allow about 0.6 × `fontSize` per character, and 1.25 × `fontSize` per line.
+6. **Give text room.** Excalidraw draws a text element at the `width` and `height` the file gives it, so a box that's
+   too small cuts the text off. Localidraw measures text again when it opens a canvas, and when your change arrives,
+   so there it shows in full (and the right size is saved with the next edit). Other editors, the VS Code extension
+   included, don't. In Excalifont (`fontFamily: 5`), allow about 0.6 × `fontSize` per character, and 1.25 ×
+   `fontSize` per line.
 7. **Keep bindings two-way.** A label is a `text` element whose `containerId` is its box, and the box lists it in
    `boundElements`. An arrow attached to a shape names it in `startBinding`/`endBinding`, and the shape lists the
    arrow in its `boundElements`; adding the arrow changes the shape, so bump the shape's `version` too.

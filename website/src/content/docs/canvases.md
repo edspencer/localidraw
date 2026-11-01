@@ -79,7 +79,7 @@ Next to the undo buttons, in small grey text:
 
 <kbd>Ctrl</kbd>+<kbd>S</kbd> (<kbd>⌘</kbd>+<kbd>S</kbd> on a Mac) saves at once rather than waiting.
 
-If Localidraw stops, the page says it isn't running. Keep drawing: when it's started again the page reconnects,
+If Localidraw stops, the page says it isn't running, in the footer. Keep drawing: when it's started again the page reconnects,
 catches up with anything that changed on disk meanwhile, and saves what you drew.
 
 ## An empty folder, or a canvas that won't open

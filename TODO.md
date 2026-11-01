@@ -14,20 +14,8 @@ Roughly in priority order within each section. Strike items out, or delete them,
 
 ## The editor
 
-- [ ] **Show empty folders as projects?** Folders with no canvases are hidden, and git doesn't keep empty folders
-  anyway.
 - [ ] **Large files**: canvases with big embedded images (`files`). The body limit is 64 MB, and every save sends the
   whole scene. Images could be stored apart, or only sent when they change.
-- [ ] **The "isn't running" banner covers the middle of the toolbar** while it shows. Move it clear of the toolbar,
-  or into the footer.
-- [ ] **Text an agent wrote too small is clipped.** Excalidraw draws a text element at the `width`/`height` in the
-  file and doesn't measure it again on open, so an agent's estimate that's short cuts the label off (the docs' agents
-  page says to size generously). `restoreElements(…, { refreshDimensions: true })` when loading might fix it; check it
-  doesn't make opening write.
-- [ ] **A white flash on load in dark mode**: `index.html` has no background, so the page is white until the script
-  runs. Set it from the stored theme before the bundle loads.
-- [ ] **Tool shortcuts after picking a canvas.** With focus left in the sidebar, `r`, `o` and the rest don't reach the
-  canvas until it's clicked. Hand focus to the canvas once one opens.
 
 ## Compatibility and platforms
 

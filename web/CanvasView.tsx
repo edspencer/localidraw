@@ -1,7 +1,7 @@
 // The canvases: one Excalidraw, showing one .excalidraw file at a time, saving as you draw and merging changes made
 // on disk. Switching canvases swaps the scene in the same Excalidraw, rather than mounting a new one.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { CaptureUpdateAction, convertToExcalidrawElements, DefaultSidebar, Excalidraw, Footer, MainMenu, Sidebar, getCommonBounds, restoreAppState, restoreElements, serializeAsJSON } from "@excalidraw/excalidraw";
+import { CaptureUpdateAction, convertToExcalidrawElements, DefaultSidebar, Excalidraw, FONT_FAMILY, Footer, MainMenu, Sidebar, getCommonBounds, restoreAppState, restoreElements, serializeAsJSON } from "@excalidraw/excalidraw";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { getCanvas, NO_FILE, putCanvas, type Loaded } from "./api.ts";
@@ -9,9 +9,32 @@ import { changedSince, mergeScenes, versionsOf } from "./merge.ts";
 import { CloseIcon, FoldersIcon } from "./icons.tsx";
 import { library } from "./library.ts";
 import { prefs } from "./prefs.ts";
-import { Screen } from "./Screen.tsx";
+import { Offline, OFFLINE, Screen } from "./Screen.tsx";
 
 const SAVE_AFTER_MS = 700;
+
+/**
+ * A file's elements as Excalidraw's own, with each text's size measured again: an agent that guessed a text's width
+ * too small would otherwise have it clipped. That changes no version, so opening still never writes.
+ */
+const restore = (elements: Loaded["scene"]["elements"]) => restoreElements(elements, null, { repairBindings: true, refreshDimensions: true });
+
+const FONT_NAMES = new Map<number, string>(Object.entries(FONT_FAMILY).map(([name, id]) => [id, name]));
+
+/**
+ * Loads the fonts a scene's text is in (Excalidraw registers them once it's mounted, and loads one only when it first
+ * draws it), so that measuring the text uses them rather than a fallback. Never waits more than 2 s.
+ */
+function fontsFor(elements: readonly any[]): Promise<unknown> {
+  const wanted = new Map<string, string>(); // font → the text in it, so the right subsets (CJK, say) load too
+  for (const e of elements) {
+    const name = e?.type === "text" && FONT_NAMES.get(e.fontFamily);
+    if (name && typeof e.text === "string") wanted.set(`20px "${name}", Xiaolai`, (wanted.get(`20px "${name}", Xiaolai`) ?? "") + e.text);
+  }
+  if (!wanted.size) return Promise.resolve();
+  const loads = [...wanted].map(([font, text]) => document.fonts.load(font, text).catch(() => {}));
+  return Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, 2000))]);
+}
 const RETRY_AFTER_MS = 2000; // a canvas you've left that couldn't be saved (the server was down, say)
 
 /**
@@ -96,6 +119,7 @@ const FRESH = {
 type Props = {
   path: string;
   sidebar: ReactNode; // the Canvases tab's contents
+  offline: boolean; // the server is away
   /**
    * Called with a function to run when a canvas changes on disk: its path and new content hash; its path and null
    * when it's gone (deleted, or moved); or (null, null) when the open one may have changed unannounced (the server
@@ -117,7 +141,7 @@ const RELEASE_TIMEOUT_MS = 5000;
 /** A canvas that arrives this close to the open one going, with the same content, is where it was moved to. */
 const MOVE_WINDOW_MS = 5000;
 
-export function CanvasView({ path, sidebar, onDiskChange, onMoved, control }: Props) {
+export function CanvasView({ path, sidebar, offline, onDiskChange, onMoved, control }: Props) {
   // The scene Excalidraw mounts with. Later canvases are swapped into the same Excalidraw.
   const [initial, setInitial] = useState<any>(null);
   const [status, setStatus] = useState("");
@@ -141,7 +165,7 @@ export function CanvasView({ path, sidebar, onDiskChange, onMoved, control }: Pr
 
   /** The file's newer state into the canvas (on screen, or as it was left), keeping what was drawn here since. */
   const absorb = useCallback((s: Session, loaded: Loaded) => {
-    const remote = restoreElements(loaded.scene.elements, null);
+    const remote = restore(loaded.scene.elements);
     const ex = api.current;
     if (s.left) {
       s.left = { ...s.left, elements: mergeScenes(s.left.elements, remote, s.base).elements, files: { ...s.left.files, ...(loaded.scene.files ?? {}) } };
@@ -150,6 +174,7 @@ export function CanvasView({ path, sidebar, onDiskChange, onMoved, control }: Pr
       if (files.length) ex.addFiles(files);
       const { elements, replaced } = mergeScenes(ex.getSceneElementsIncludingDeleted(), remote, s.base);
       ex.updateScene({ elements, captureUpdate: CaptureUpdateAction.NEVER });
+      remeasure(s);
       // The same element was changed here and on disk, and the disk's change won: say so, quietly.
       if (replaced.length) setLost((was) => ({ ids: [...new Set([...(was?.ids ?? []), ...replaced])] }));
     }
@@ -204,6 +229,22 @@ export function CanvasView({ path, sidebar, onDiskChange, onMoved, control }: Pr
       else done();
     }
   }, [absorb]);
+
+  /**
+   * Measures the text on screen again once its fonts are in, for text an agent sized too small (restore, above). It
+   * changes no version, so nothing is saved for it; the right size goes in the file with the next edit.
+   */
+  const remeasure = (s: Session) => {
+    const ex = api.current;
+    if (!ex) return;
+    void fontsFor(ex.getSceneElements()).then(() => {
+      if (!isCurrent(s) || api.current !== ex) return;
+      const elements = ex.getSceneElementsIncludingDeleted();
+      const measured = restore(elements as any);
+      const resized = measured.some((e, i) => e.type === "text" && (e.width !== elements[i].width || e.height !== elements[i].height));
+      if (resized) ex.updateScene({ elements: measured, captureUpdate: CaptureUpdateAction.NEVER });
+    });
+  };
 
   /** Points a canvas at the path its file was renamed or moved to, keeping it on screen as it is (and its undo). */
   const retarget = (s: Session, to: string) => {
@@ -299,7 +340,7 @@ export function CanvasView({ path, sidebar, onDiskChange, onMoved, control }: Pr
       const { viewBackgroundColor, gridSize, gridStep, gridModeEnabled } = left.appState;
       scene = { elements: left.elements, files: left.files, appState: { viewBackgroundColor, gridSize, gridStep, gridModeEnabled } };
     } else {
-      const elements = restoreElements(loaded!.scene.elements, null);
+      const elements = restore(loaded!.scene.elements);
       s = { path: p, hash: loaded!.hash, base: versionsOf(elements), background: canvasAppState(loaded!.scene).viewBackgroundColor,
         timer: undefined, saving: false, again: false, checked: 0, written: 0 };
       scene = { elements, files: loaded!.scene.files ?? {}, appState: canvasAppState(loaded!.scene) };
@@ -324,6 +365,7 @@ export function CanvasView({ path, sidebar, onDiskChange, onMoved, control }: Pr
       });
       ex.history.clear(); // undo stays on the canvas it was done on
       expose(ex);
+      remeasure(s);
       if (fit) fitToView(ex);
     }
     if (resumed) void catchUp(s, null); // it may have changed on disk while it was off screen
@@ -460,6 +502,7 @@ export function CanvasView({ path, sidebar, onDiskChange, onMoved, control }: Pr
   if (failed) {
     return (
       <Screen>
+        {offline && <Offline />}
         <div className="Island ld-screen__island ld-screen__island--canvases">
           <h1>Couldn't open {failed.path}</h1>
           <p>
@@ -471,13 +514,15 @@ export function CanvasView({ path, sidebar, onDiskChange, onMoved, control }: Pr
       </Screen>
     );
   }
-  if (!initial) return <Screen><span className="ld-loading">Opening…</span></Screen>;
+  if (!initial) return <Screen>{offline && <Offline />}<span className="ld-loading">Opening…</span></Screen>;
   return (
     <Excalidraw
       initialData={initial}
       excalidrawAPI={(a) => {
         api.current = a;
         expose(a);
+        // Once the first canvas is in it (not yet, as it calls this).
+        setTimeout(() => { if (current.current) remeasure(current.current); });
         void library.attach(a);
         if (initial.fit) setTimeout(() => fitToView(a), 300);
       }}
@@ -510,6 +555,9 @@ export function CanvasView({ path, sidebar, onDiskChange, onMoved, control }: Pr
       </DefaultSidebar>
       <Footer>
         <div className="ld-status" title={status}>{status}</div>
+        {offline && (
+          <div className="ld-notice ld-notice--offline" role="status"><span className="ld-notice__text">{OFFLINE}</span></div>
+        )}
         {gone && (
           <div className="ld-notice" role="status">
             <span className="ld-notice__text">This canvas was deleted or moved on disk</span>

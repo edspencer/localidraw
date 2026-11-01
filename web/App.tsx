@@ -5,7 +5,7 @@ import { CanvasesTab, TrashedNotice, type Trashed, type TrashProps } from "./Can
 import { CanvasView, type Control } from "./CanvasView.tsx";
 import { library } from "./library.ts";
 import { prefs } from "./prefs.ts";
-import { Screen } from "./Screen.tsx";
+import { Offline, Screen } from "./Screen.tsx";
 
 const pathFromUrl = () => new URLSearchParams(location.search).get("canvas");
 
@@ -138,9 +138,9 @@ export function App() {
   );
   return (
     <div className="ld-app">
-      {offline && <div className="ld-offline">Localidraw isn't running: start it again and this page reconnects.</div>}
+      {offline && !path && <Offline />}
       {path
-        ? <CanvasView path={path} sidebar={tab} onDiskChange={(h) => { onDiskChange.current = h; }} control={(c) => { canvases.current = c; }}
+        ? <CanvasView path={path} sidebar={tab} offline={offline} onDiskChange={(h) => { onDiskChange.current = h; }} control={(c) => { canvases.current = c; }}
             onMoved={(from, to) => { prefs.moveViewport(from, to); if (from === pathFromUrl()) open(to, true); }} />
         : <EmptyFolder rootName={rootName} onCreate={create} {...trashProps} />}
     </div>
