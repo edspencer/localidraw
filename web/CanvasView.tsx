@@ -219,7 +219,8 @@ export function CanvasView({ path, sidebar, offline, onDiskChange, onMoved, cont
       s.background = scene.appState.viewBackgroundColor;
       if (isCurrent(s)) setStatus(`Saved ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`);
     } catch (err) {
-      if (isCurrent(s)) setStatus(`Not saved: ${err instanceof Error ? err.message : err}`);
+      const why = err instanceof Error ? err.message : String(err);
+      if (isCurrent(s)) setStatus(why ? `Not saved: ${why}` : "Not saved");
       // On screen, the next change (or status re-render) tries again; a canvas you've left has to try by itself.
       retry = !!s.left;
     } finally {

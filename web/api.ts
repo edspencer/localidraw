@@ -8,7 +8,8 @@ const canvasUrl = (path: string) => `/api/canvas?path=${encodeURIComponent(path)
 
 async function reply<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(body.error ?? res.statusText), { status: res.status, body });
+  // Over HTTP/2 there's no status text, so a proxy's bare 502 (the server is away) would say nothing at all.
+  if (!res.ok) throw Object.assign(new Error(body.error ?? (res.statusText || `The server answered ${res.status}.`)), { status: res.status, body });
   return body as T;
 }
 
