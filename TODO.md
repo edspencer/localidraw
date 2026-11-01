@@ -8,8 +8,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
 - [ ] **Review `AI-DECLARATION.md`.** It's a draft written by Claude in Ed's voice, modelled on Local Review's. Make it
   true and yours.
 - [ ] **Publish `localidraw` to npm.** The name was free on 2026-11-01, so `npx localidraw` should then work.
-- [ ] **README hero image** from a neutral demo folder. The spike's screenshots were of private diagrams, so none
-  are committed. Maybe a short GIF of drawing while an agent edits the same canvas.
 - [ ] **Package size** (15.8 MB packed, 21.7 MB unpacked). Decided: keep Xiaolai, Excalidraw's CJK handwriting font
   (12 of the 13 MB of fonts), so it works fully offline. `npm run smoke:pack` now fails if the package grows past
   16.5 MB packed or 23 MB unpacked. The lazily loaded chunks (7.7 MB, mostly Mermaid) could still be looked at.

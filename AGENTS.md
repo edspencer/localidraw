@@ -37,6 +37,8 @@ For agents (and people) developing Localidraw itself.
   `styles.css`. Bundled by `scripts/build-web.mjs` (esbuild) into `dist/web`, with Excalidraw's fonts.
 - `brand/`: the mark, lockups, icons and social cards, all made from `mark.svg` by `generate.mjs` (which also
   writes `web/favicon.svg`). [brand/README.md](brand/README.md) has the rules.
+- `demo/`: a neutral folder of canvases, and `tools/docs-media/`, which remakes it and records the README's GIF
+  (`docs/media/hero.gif`) on it.
 - `test/`: `node:test` suites.
 - `e2e/`: Playwright browser tests, and the theme snapshots ([e2e/README.md](e2e/README.md)). They wait on
   `window.localidraw` (`TestHandle` in `web/CanvasView.tsx`), never on sleeps.
@@ -51,6 +53,7 @@ npm run typecheck
 npm run build         # dist/web (esbuild) + dist/server (tsc)
 npm run smoke:pack    # pack, install into a temp prefix, run it, check it serves and fits its size budget
 npm run test:e2e      # the browser tests (npx playwright install chromium, once)
+npm run docs:media:hero     # re-record docs/media/hero.gif (tools/docs-media/README.md)
 npm run test:e2e:snapshots  # those plus the theme snapshots, in Docker; -- --update-snapshots remakes them
 ```
 
