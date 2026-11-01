@@ -53,7 +53,8 @@ To host it (on a server, or in Docker, behind a reverse proxy):
 - `--poll [ms]`: find changes by checking the files every so often (default 2000 ms) rather than by file events, for
   a folder on NFS or SMB, or `$LOCALIDRAW_POLL`.
 
-Localidraw has no login of its own: when you host it, authentication is the reverse proxy's job.
+Localidraw has no login of its own: when you host it, authentication is the reverse proxy's job. There's a Docker
+image, `ghcr.io/edspencer/localidraw` (amd64 and arm64), and a [`compose.yaml`](compose.yaml).
 [Self-hosting](https://localidraw.edspencer.net/self-hosting/) has the details and the limits.
 
 The open canvas is in the URL (`?canvas=path/in/folder.excalidraw`), so you can bookmark it. Your viewport per canvas,

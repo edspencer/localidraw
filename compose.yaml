@@ -1,0 +1,64 @@
+# Localidraw in Docker: a folder of canvases, served on this machine's loopback.
+#
+#   mkdir -p canvases        # first, so Docker doesn't create it owned by root
+#   docker compose up -d     # then open http://localhost:3729/
+#
+# Localidraw has no login. To reach it from other machines, put a reverse proxy that does authentication in front
+# (https://localidraw.edspencer.net/self-hosting/), and name the host it's reached by in LOCALIDRAW_ALLOWED_HOSTS.
+name: localidraw
+services:
+  localidraw:
+    # `docker compose up -d --build` builds this checkout instead.
+    image: ghcr.io/edspencer/localidraw:${LOCALIDRAW_TAG:-latest}
+    build: .
+    pull_policy: missing
+    # Published on loopback only. For a reverse proxy on another machine, publish on the address it reaches instead,
+    # e.g. "192.168.1.20:3729:3729", never on every address.
+    ports:
+      - "127.0.0.1:3729:3729"
+    # The image runs as uid 1000 (`node`). If the folder belongs to someone else, set LOCALIDRAW_UID and
+    # LOCALIDRAW_GID to its owner (`id -u`, `id -g`), so Localidraw can write there and what it writes is theirs.
+    user: "${LOCALIDRAW_UID:-1000}:${LOCALIDRAW_GID:-1000}"
+    environment:
+      # The host names it answers to. `localhost` for this machine; add your proxy's name, comma-separated, e.g.
+      # localhost,draw.example.com. It won't start without at least one.
+      LOCALIDRAW_ALLOWED_HOSTS: ${LOCALIDRAW_ALLOWED_HOSTS:-localhost}
+      # For a folder on a network mount (NFS, SMB), where another machine's writes send no file events, check the
+      # files every 2000 ms instead. Docker Desktop's bind mounts on macOS can miss events too.
+      # LOCALIDRAW_POLL: "2000"
+    volumes:
+      # create_host_path: false, so a missing folder is an error rather than an empty one owned by root
+      - type: bind
+        source: ${LOCALIDRAW_CANVASES:-./canvases}
+        target: /canvases
+        bind: { create_host_path: false }
+    restart: unless-stopped
+
+# A folder on a NAS, over NFS, as a volume (instead of the bind mount above). Then turn on LOCALIDRAW_POLL.
+#
+#   volumes:
+#     - canvases:/canvases
+# volumes:
+#   canvases:
+#     driver: local
+#     driver_opts:
+#       type: nfs
+#       o: addr=nas.lan,rw,nfsvers=4.1,actimeo=1
+#       device: ":/volume1/canvases"
+#
+# Behind a reverse proxy on the same machine, e.g. Caddy with forward auth to Authentik (the Self-hosting page has
+# the whole Caddyfile), keep the loopback port above and add the name:
+#
+#   LOCALIDRAW_ALLOWED_HOSTS: draw.example.com
+#
+#   draw.example.com {
+#   	route {
+#   		reverse_proxy /outpost.goauthentik.io/* http://authentik-outpost:9000
+#   		forward_auth http://authentik-outpost:9000 {
+#   			uri /outpost.goauthentik.io/auth/caddy
+#   			copy_headers X-Authentik-Username X-Authentik-Email
+#   			trusted_proxies private_ranges
+#   		}
+#   		reverse_proxy 127.0.0.1:3729
+#   	}
+#   }

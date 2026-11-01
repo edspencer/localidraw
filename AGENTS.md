@@ -49,6 +49,9 @@ For agents (and people) developing Localidraw itself.
 - `website/`: the docs site (Astro + Starlight), a separate private package that Cloudflare Pages builds
   ([website/README.md](website/README.md)). It's the reference documentation: when behaviour, the options or the
   file rules change, change its pages too. Its sidebar is hand-maintained, and `src/site.mjs` copies `DEFAULT_PORT`.
+- `Dockerfile`, `compose.yaml` and `scripts/smoke-image.sh`: the image (`ghcr.io/edspencer/localidraw`, built and
+  pushed by `release.yml`) and its check, which CI runs on every PR. The image listens on `0.0.0.0`, so it relies on
+  the allowed-hosts refusal: keep `LOCALIDRAW_HOST` there, and the refusal in the CLI.
 - `test/`: `node:test` suites.
 - `e2e/`: Playwright browser tests, and the theme snapshots ([e2e/README.md](e2e/README.md)). They wait on
   `window.localidraw` (`TestHandle` in `web/CanvasView.tsx`), never on sleeps.
@@ -66,8 +69,10 @@ npm run test:e2e      # the browser tests (npx playwright install chromium, once
 (cd website && npm install && npm run build && npm run check-links)  # the docs site
 npm run docs:media:hero     # re-record docs/media/hero.gif (tools/docs-media/README.md)
 npm run test:e2e:snapshots  # those plus the theme snapshots, in Docker; -- --update-snapshots remakes them
+docker build -t localidraw:smoke . && scripts/smoke-image.sh localidraw:smoke <version>  # the image
 ```
 
 Run `npm test` and `npm run typecheck` before committing, and `npm run smoke:pack` when you change the build or
 `package.json` (`files`, `bin`, dependencies). Run `npm run test:e2e` when you change the page, and
-`npm run test:e2e:snapshots` when you change how it looks.
+`npm run test:e2e:snapshots` when you change how it looks. Build the image and run `scripts/smoke-image.sh` when you
+change the `Dockerfile`, the CLI's options or the build.

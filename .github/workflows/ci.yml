@@ -105,6 +105,25 @@ jobs:
         run: npm run check-links
         working-directory: website
 
+  # The Docker image builds, starts healthy and serves as the docs say (scripts/smoke-image.sh), on amd64; the release
+  # builds arm64 too, natively. Nothing is pushed from here.
+  image:
+    name: Docker image (amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: localidraw:smoke
+          cache-from: type=gha,scope=ci-image
+          cache-to: type=gha,mode=max,scope=ci-image
+      - name: Start it and check it
+        run: scripts/smoke-image.sh localidraw:smoke "$(node -p "require('./package.json').version")"
+
   # Windows is best effort for now: paths, the recursive fs.watch and `explorer` for --open are untested there
   # (TODO.md, "Compatibility and platforms"). This leg reports what fails without blocking a merge: it's
   # continue-on-error, and ci-passed doesn't wait for it.
@@ -135,7 +154,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [test, e2e, website]
+    needs: [test, e2e, website, image]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job to have passed
