@@ -1,5 +1,19 @@
 # localidraw
 
+## 0.4.1
+
+### Patch Changes
+
+- [#34](https://github.com/edspencer/localidraw/pull/34) [`8d187bb`](https://github.com/edspencer/localidraw/commit/8d187bb0d4f05c72415da75b97dd8a7112f3139e) Thanks [@edspencer](https://github.com/edspencer)! - The page bundles patched `lodash-es` (4.18) and `nanoid` (3.3.20), clearing 6 of the 11 `npm audit` findings in Excalidraw's dependencies. The rest are triaged in SECURITY.md.
+
+- [#39](https://github.com/edspencer/localidraw/pull/39) [`6672a4e`](https://github.com/edspencer/localidraw/commit/6672a4eb73a7f31d81365f2b8674155dff904db2) Thanks [@edspencer](https://github.com/edspencer)! - The empty-folder screen opens the first canvas as soon as one is made on disk (by an agent, a `git pull`, or another page), instead of saying there are none until you reload.
+
+- [#38](https://github.com/edspencer/localidraw/pull/38) [`7dc931c`](https://github.com/edspencer/localidraw/commit/7dc931c5fdc5d1f3ec32becbcad0ed3be6d01a6c) Thanks [@edspencer](https://github.com/edspencer)! - A canvas whose deletion on disk was heard before it turned up at its new path (a `git mv`), or back at its old one, no longer goes on saying "Not saved" when nothing was drawn meanwhile.
+
+- [#32](https://github.com/edspencer/localidraw/pull/32) [`91b03c5`](https://github.com/edspencer/localidraw/commit/91b03c518dcacd8f52e47478cb8ebc59aa4b211c) Thanks [@edspencer](https://github.com/edspencer)! - On Linux, when the system's limit on file watches (`fs.inotify.max_user_watches`) is reached in a big folder, Localidraw now says so once, with what to do, instead of quietly missing changes in the folders past the limit.
+
+- [#31](https://github.com/edspencer/localidraw/pull/31) [`ad6b86e`](https://github.com/edspencer/localidraw/commit/ad6b86e6a1f2e1bd86b7bef7037e8b6284bea91b) Thanks [@edspencer](https://github.com/edspencer)! - Windows: `--open` starts the default browser through `rundll32 url.dll,FileProtocolHandler` instead of `explorer`, and CI now tests Windows (Node 22 and 24) on every change, the packed package included.
+
 ## 0.4.0
 
 ### Minor Changes
