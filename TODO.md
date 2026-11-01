@@ -16,8 +16,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
 
 - [ ] **Rename, move and delete canvases from the sidebar.** Today that's `git mv`/`git rm` (or Finder), and the
   server only creates and saves. Deleting needs a decision about safety (a trash folder? git only?).
-- [ ] **Tell the user when a change of theirs lost** to a change on disk (the same element edited on both sides at
-  once). The merge resolves it silently today.
 - [ ] **Show empty folders as projects?** Folders with no canvases are hidden, and git doesn't keep empty folders
   anyway.
 - [ ] **Large files**: canvases with big embedded images (`files`). The body limit is 64 MB, and every save sends the

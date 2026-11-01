@@ -37,6 +37,25 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.locator(".layer-ui__wrapper__footer")).toHaveScreenshot(`footer-status-${theme}.png`, chrome);
     });
 
+    test("the footer's notice of an edit that lost to a change on disk", async ({ page, folder, open }) => {
+      await open("plan.excalidraw");
+      await settled(page);
+      let release!: () => void;
+      const held = new Promise<void>((r) => (release = r));
+      await page.route("**/api/canvas?*", async (route) => { if (route.request().method() === "PUT") await held; await route.continue(); });
+      await page.evaluate(() => window.localidraw!.api.updateScene({ appState: { selectedElementIds: { "box-a": true } } }));
+      await page.keyboard.press("ArrowRight");
+      await expect.poll(async () => (await page.evaluate(() => window.localidraw!.saves())).state).toBe("saving");
+      const scene = folder.scene("plan.excalidraw");
+      folder.write("plan.excalidraw", { ...scene, elements: scene.elements.map((e) => (e.id === "box-a" ? { ...e, y: 300, version: 20 } : e)) });
+      release();
+      await expect(page.locator(".ld-notice")).toBeVisible();
+      await settled(page);
+      await page.evaluate(() => window.localidraw!.api.updateScene({ appState: { selectedElementIds: {} } }));
+      await page.mouse.move(600, 300);
+      await expect(page.locator(".layer-ui__wrapper__footer")).toHaveScreenshot(`footer-notice-${theme}.png`, chrome);
+    });
+
     test.describe("an empty folder", () => {
       test.use({ folderName: null });
       test("offers to make the first canvas", async ({ page, open }) => {

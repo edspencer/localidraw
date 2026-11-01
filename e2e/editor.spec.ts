@@ -274,3 +274,71 @@ test("putting an older version of the file back (git checkout) sticks", async ({
   expect((await saves(page)).written).toBe(written);
   expect(folder.read("notes.excalidraw")).toBe(original);
 });
+
+test.describe("an edit of yours that lost to a change on disk", () => {
+  /** Moves one element a step right, as the user does: selected, then an arrow key. */
+  const nudge = async (page: import("@playwright/test").Page, id: string) => {
+    await page.evaluate((i) => window.localidraw!.api.updateScene({ appState: { selectedElementIds: { [i]: true } } }), id);
+    await page.keyboard.press("ArrowRight");
+  };
+  /** The agent's edit: the element moved far down, at a higher version, written over the file. */
+  const agentMoves = (folder: import("./fixtures.ts").Folder, id: string) => {
+    const scene = folder.scene("plan.excalidraw");
+    folder.write("plan.excalidraw", { ...scene, elements: scene.elements.map((e) => (e.id === id ? { ...e, y: e.y + 500, version: e.version + 10 } : e)) });
+  };
+  const holdFirstSave = async (page: import("@playwright/test").Page) => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let first = true;
+    await page.route("**/api/canvas?*", async (route) => {
+      if (route.request().method() === "PUT" && first) { first = false; await held; }
+      await route.continue();
+    });
+    return release;
+  };
+
+  test("is pointed out in the footer, and Show selects it", async ({ page, folder, open }) => {
+    await open("plan.excalidraw");
+    await settled(page);
+    const release = await holdFirstSave(page);
+    const conflict = page.waitForResponse((r) => r.request().method() === "PUT" && r.status() === 409);
+    await nudge(page, "box-a");
+    await expect.poll(async () => (await saves(page)).state).toBe("saving");
+    agentMoves(folder, "box-a");
+    release();
+    await conflict;
+
+    const notice = page.locator(".ld-notice");
+    await expect(notice).toHaveText(/An edit of yours was replaced by a change on disk/);
+    await settled(page);
+    // Nothing of ours was left to save, so the status says what happened rather than "Saving…" for good.
+    await expect(page.locator(".ld-status")).toHaveText("Updated from disk");
+    const boxA = folder.elements("plan.excalidraw").find((e) => e.id === "box-a")!;
+    expect(boxA.y).toBe(500); // the disk's version, on disk and on screen
+    expect(await page.evaluate(() => window.localidraw!.api.getSceneElements().find((e) => e.id === "box-a")!.y)).toBe(500);
+
+    await page.evaluate(() => window.localidraw!.api.updateScene({ appState: { selectedElementIds: {} } }));
+    await notice.getByRole("button", { name: "Show" }).click();
+    await expect.poll(() => page.evaluate(() => Object.keys(window.localidraw!.api.getAppState().selectedElementIds))).toEqual(["box-a"]);
+    await notice.getByRole("button", { name: "Dismiss" }).click();
+    await expect(notice).toBeHidden();
+  });
+
+  test("isn't claimed when the disk changed a different element", async ({ page, folder, open }) => {
+    await open("plan.excalidraw");
+    await settled(page);
+    const release = await holdFirstSave(page);
+    const conflict = page.waitForResponse((r) => r.request().method() === "PUT" && r.status() === 409);
+    const boxB = folder.elements("plan.excalidraw").find((e) => e.id === "box-b")!;
+    await nudge(page, "box-a");
+    await expect.poll(async () => (await saves(page)).state).toBe("saving");
+    agentMoves(folder, "box-b");
+    release();
+    await conflict;
+    await settled(page);
+    const onDisk = folder.elements("plan.excalidraw");
+    expect(onDisk.find((e) => e.id === "box-a")!.x).toBeGreaterThan(0); // mine
+    expect(onDisk.find((e) => e.id === "box-b")!.y).toBe(boxB.y + 500); // theirs
+    await expect(page.locator(".ld-notice")).toHaveCount(0);
+  });
+});

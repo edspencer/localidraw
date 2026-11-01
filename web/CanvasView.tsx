@@ -6,7 +6,7 @@ import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { getCanvas, putCanvas, type Loaded } from "./api.ts";
 import { changedSince, mergeScenes, versionsOf } from "./merge.ts";
-import { FoldersIcon } from "./icons.tsx";
+import { CloseIcon, FoldersIcon } from "./icons.tsx";
 import { library } from "./library.ts";
 import { prefs } from "./prefs.ts";
 import { Screen } from "./Screen.tsx";
@@ -107,7 +107,8 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
   const [status, setStatus] = useState("");
   const [failed, setFailed] = useState<{ path: string; message: string; retries: boolean } | null>(null);
   const [docked, setDocked] = useState(prefs.docked());
-  const [shown, setShown] = useState(path); // the canvas on screen, which lags the URL while the next one loads
+  const [shown, setShown] = useState(path);
+  const [lost, setLost] = useState<{ ids: string[] } | null>(null); // edits here that lost to a change on disk // the canvas on screen, which lags the URL while the next one loads
   const failedRef = useRef(failed);
   failedRef.current = failed;
   const api = useRef<ExcalidrawImperativeAPI | null>(null);
@@ -122,11 +123,14 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
     const remote = restoreElements(loaded.scene.elements, null);
     const ex = api.current;
     if (s.left) {
-      s.left = { ...s.left, elements: mergeScenes(s.left.elements, remote, s.base), files: { ...s.left.files, ...(loaded.scene.files ?? {}) } };
+      s.left = { ...s.left, elements: mergeScenes(s.left.elements, remote, s.base).elements, files: { ...s.left.files, ...(loaded.scene.files ?? {}) } };
     } else if (ex && isCurrent(s)) {
       const files = Object.values(loaded.scene.files ?? {});
       if (files.length) ex.addFiles(files);
-      ex.updateScene({ elements: mergeScenes(ex.getSceneElementsIncludingDeleted(), remote, s.base), captureUpdate: CaptureUpdateAction.NEVER });
+      const { elements, replaced } = mergeScenes(ex.getSceneElementsIncludingDeleted(), remote, s.base);
+      ex.updateScene({ elements, captureUpdate: CaptureUpdateAction.NEVER });
+      // The same element was changed here and on disk, and the disk's change won: say so, quietly.
+      if (replaced.length) setLost((was) => ({ ids: [...new Set([...(was?.ids ?? []), ...replaced])] }));
     }
     s.hash = loaded.hash;
     s.base = versionsOf(remote);
@@ -150,6 +154,8 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
       const result = await putCanvas(s.path, s.hash, serializeAsJSON(scene.elements, scene.appState, scene.files, "local"));
       if (!result.ok) {
         absorb(s, result.conflict);
+        // Merged: if that left anything of ours to save, the next save says "Saving…" again.
+        if (isCurrent(s)) setStatus("Updated from disk");
         s.again = true; // save the merge
         return;
       }
@@ -197,6 +203,7 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
     leave();
     setFailed(null);
     setStatus("");
+    setLost(null);
     // A canvas left a moment ago whose save isn't done is picked up where it was, rather than read from disk.
     const resumed = leaving.current.get(p);
     if (!resumed?.left && !loaded) return;
@@ -313,6 +320,17 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
     s.timer = setTimeout(() => { s.timer = undefined; void save(s); }, SAVE_AFTER_MS);
   }, [save]);
 
+  /** Selects the elements whose edit was replaced, and brings them into view. */
+  const showLost = (ids: string[]) => {
+    const ex = api.current;
+    if (!ex) return;
+    const wanted = new Set(ids);
+    const elements = ex.getSceneElements().filter((e) => wanted.has(e.id));
+    if (!elements.length) return setLost(null); // gone since
+    ex.updateScene({ appState: { selectedElementIds: Object.fromEntries(elements.map((e) => [e.id, true])) }, captureUpdate: CaptureUpdateAction.NEVER });
+    ex.scrollToContent(elements, { animate: true });
+  };
+
   if (failed) {
     return (
       <Screen>
@@ -366,6 +384,15 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
       </DefaultSidebar>
       <Footer>
         <div className="ld-status" title={status}>{status}</div>
+        {lost && (
+          <div className="ld-notice" role="status">
+            <span className="ld-notice__text">
+              {lost.ids.length === 1 ? "An edit of yours was" : `${lost.ids.length} edits of yours were`} replaced by a change on disk
+            </span>
+            <button type="button" className="ld-notice__action" onClick={() => showLost(lost.ids)}>Show</button>
+            <button type="button" className="ld-notice__close" aria-label="Dismiss" title="Dismiss" onClick={() => setLost(null)}>{CloseIcon}</button>
+          </div>
+        )}
       </Footer>
     </Excalidraw>
   );

@@ -80,6 +80,24 @@ html, body, #root, .ld-app { margin: 0; height: 100%; }
   color: var(--color-gray-50); pointer-events: none;
 }
 
+/* A change of yours that lost to one on disk: a small island beside the status, until it's dismissed. */
+.excalidraw .ld-notice {
+  display: flex; align-items: center; gap: 0.25rem; align-self: center; height: 2.25rem; padding: 0 0.25rem 0 0.75rem;
+  box-sizing: border-box; border-radius: var(--border-radius-lg); background: var(--island-bg-color);
+  box-shadow: var(--shadow-island); font-size: 0.75rem; letter-spacing: 0.4px; color: var(--color-on-surface);
+  white-space: nowrap; min-width: 0;
+}
+.excalidraw .ld-notice__text { overflow: hidden; text-overflow: ellipsis; }
+.excalidraw .ld-notice__action,
+.excalidraw .ld-notice__close {
+  display: flex; align-items: center; justify-content: center; height: 1.75rem; padding: 0 0.5rem; border: 0;
+  border-radius: var(--border-radius-md); background: transparent; cursor: pointer; font: inherit;
+}
+.excalidraw .ld-notice__action { color: var(--color-primary); font-weight: 600; }
+.excalidraw .ld-notice__close { width: 1.75rem; padding: 0; color: var(--color-gray-50); }
+.excalidraw .ld-notice__action:hover,
+.excalidraw .ld-notice__close:hover { background: var(--button-hover-bg, var(--color-surface-high)); }
+
 /* A page outside Excalidraw (web/Screen.tsx): a folder with no canvases, or a canvas opening or that won't open. */
 .ld-screen { display: flex; align-items: center; justify-content: center; background: var(--color-surface-lowest, #fff); }
 .excalidraw .ld-screen__island { padding: 1.5rem 1.75rem; max-width: 26rem; }

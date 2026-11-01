@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changedSince, mergeLibraries, mergeScenes, versionsOf, type Versioned } from "../web/merge.ts";
+import { changedSince, mergeLibraries, mergeScenes as mergeWithReport, versionsOf, type Versioned } from "../web/merge.ts";
 
 const el = (id: string, version: number, index = id, isDeleted = false): Versioned => ({ id, version, index, isDeleted });
+const mergeScenes = (...args: Parameters<typeof mergeWithReport<Versioned>>) => mergeWithReport(...args).elements;
 const ids = (es: Versioned[]) => es.map((e) => `${e.id}@${e.version}${e.isDeleted ? "x" : ""}`);
 
 test("an element only on disk is added; one only on screen and new here is kept", () => {
@@ -41,6 +42,16 @@ test("an element deleted here stays deleted, so the save drops it", () => {
 
 test("the result is in z-order", () => {
   assert.deepEqual(ids(mergeScenes([el("x", 1, "a2")], [el("y", 1, "a1"), el("z", 1, "a3")], new Map())), ["y@1", "x@1", "z@1"]);
+});
+
+test("it reports a change made here that lost to one on disk, and nothing else", () => {
+  const base = versionsOf([el("lost", 1), el("won", 1), el("same", 1), el("theirs", 1), el("deleted", 1)]);
+  const local = [el("lost", 2), el("won", 3), { ...el("same", 2), versionNonce: 7 }, el("theirs", 1), el("deleted", 2, "deleted", true)];
+  const remote = [el("lost", 4), el("won", 2), { ...el("same", 2), versionNonce: 7 }, el("theirs", 5), el("deleted", 3)];
+  // lost: edited on both sides, disk higher. won: here higher. same: the one edit, already saved. theirs: only on disk.
+  // deleted: deleted here, edited on disk, so the deletion lost.
+  assert.deepEqual(mergeWithReport(local, remote, base).replaced, ["lost", "deleted"]);
+  assert.deepEqual(mergeWithReport([{ ...el("a", 2), versionNonce: 1 }], [{ ...el("a", 2), versionNonce: 2 }], versionsOf([el("a", 1)])).replaced, ["a"], "a tie with a different nonce is two edits; disk wins");
 });
 
 test("changedSince: looking around isn't a change; drawing and deleting are", () => {
