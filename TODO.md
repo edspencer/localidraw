@@ -1,16 +1,14 @@
 # To do
 
-What the first version (0.1.0, an initial spike) doesn't do yet, and what we've already decided should be done.
-Roughly in priority order within each section. Strike items out, or delete them, as they land.
+What Localidraw doesn't do yet, and what's been decided but not built, as of 0.4. Roughly in priority order within
+each section. Delete items as they land; keep the design notes until then.
 
-## Before the first npm release
+## For Ed
 
 - [ ] **Review `AI-DECLARATION.md`.** It's a draft written by Claude in Ed's voice, modelled on Local Review's. Make it
   true and yours.
-- [ ] **Publish `localidraw` to npm.** The name was free on 2026-11-01, so `npx localidraw` should then work.
-- [ ] **Package size** (15.8 MB packed, 21.7 MB unpacked). Decided: keep Xiaolai, Excalidraw's CJK handwriting font
-  (12 of the 13 MB of fonts), so it works fully offline. `npm run smoke:pack` now fails if the package grows past
-  16.5 MB packed or 23 MB unpacked. The lazily loaded chunks (7.7 MB, mostly Mermaid) could still be looked at.
+- [ ] **Deprecate the npm placeholder** `localidraw@0.0.1` (RELEASING.md has the command; it needs a logged-in
+  maintainer).
 
 ## The editor
 
@@ -30,11 +28,25 @@ Roughly in priority order within each section. Strike items out, or delete them,
   - **Tests:** a save that leaves an image out writes the same bytes as a full save; a 409 merge with images on both
     sides; an image deleted on disk meanwhile (the server refuses, the page resends in full); and the body size of a
     save after moving one box.
+- [ ] **Who saved what, on a hosted copy.** Decided as "later": an optional `--trust-header <name>` that reads the
+  proxy's user header (Authentik's `X-authentik-username`) to show who saved a canvas. Localidraw adds no login of its
+  own either way.
+- [ ] **Git, built in.** Not planned yet (decision 7: the hosted folder is a NAS mount or a backed-up disk). Today git
+  works alongside: checkouts, pulls and `git mv` on the open canvas are merged or followed.
+- [ ] **Undo a delete onto a name that's been re-used** leaves the canvas in `.localidraw/trash` and says why. A
+  "restore as…" would let it come back under another name.
+- [ ] **A canvas moved and edited at once on disk** looks like a delete (the move is recognised by identical content).
+  **Save it again** restores it at the old path, so nothing is lost, but it isn't followed.
+- [ ] **`source`** in saved files is the page's address (`http://localhost:3729`), as Excalidraw's `serializeAsJSON`
+  writes it. Harmless; it could say Localidraw instead.
 
 ## Compatibility and platforms
 
 - [ ] **Excalidraw upgrades.** Pinned at 0.18.1, the version the VS Code extension uses. Before moving, go through
   [AGENTS.md's checklist](AGENTS.md#upgrading-excalidraw).
+- [ ] **Package size** (15.8 MB packed, 21.8 MB unpacked at 0.4.0). Decided: keep Xiaolai, Excalidraw's CJK
+  handwriting font (12 of the 13 MB of fonts), so it works fully offline. `npm run smoke:pack` fails past 16.5 MB
+  packed or 23 MB unpacked. The lazily loaded chunks (7.7 MB, mostly Mermaid) could still be looked at.
 - [ ] **Other formats: `.excalidraw.svg`, `.excalidraw.png`, other `.excalidrawlib` files.** A design note, not built:
   none of it is cheap, and every save path it adds has to keep "nothing written on disk is lost".
   - **How the scene is embedded** (Excalidraw 0.18.1, `data/encode.ts` and `data/image.ts`). Both hold the scene's
@@ -66,11 +78,3 @@ Roughly in priority order within each section. Strike items out, or delete them,
 - [ ] **`npm audit`**: two findings left in Excalidraw's dependencies (`nanoid` 4 and `katex`, through Mermaid), neither
   reachable as Localidraw uses them, and neither fixable without moving Excalidraw. Triaged in
   [SECURITY.md](SECURITY.md#npm-audit); look again with each Excalidraw upgrade.
-
-## Name
-
-- [ ] Two small GitHub projects already use the name: [theaubmov/Localidraw](https://github.com/theaubmov/Localidraw)
-  ("A local workspace manager that adds multi-document functionality to Excalidraw", MIT, 6 stars) and
-  [lnotspotl/localidraw](https://github.com/lnotspotl/localidraw) ("folder gallery, offline-first Hugging Face bucket
-  sync, CLI"). Neither had published to npm as of 2026-11-01. Look at them as prior art, and decide whether the
-  README should mention them.
