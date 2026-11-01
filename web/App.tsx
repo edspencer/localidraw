@@ -12,7 +12,7 @@ export function App() {
   const [rootName, setRootName] = useState("");
   const [path, setPath] = useState<string | null>(pathFromUrl());
   const [offline, setOffline] = useState(false);
-  const onDiskChange = useRef<(hash: string) => void>(() => {});
+  const onDiskChange = useRef<(hash: string | null) => void>(() => {});
 
   const refresh = useCallback(async () => {
     const { root, projects } = await getProjects();
@@ -35,8 +35,17 @@ export function App() {
       if (e.type === "projects") void refresh();
       if (e.type === "changed" && e.path === pathFromUrl()) onDiskChange.current(e.hash);
     };
-    events.onerror = () => setOffline(true);
-    events.onopen = () => setOffline(false);
+    // The browser reconnects by itself. Changes made on disk while it was away were never announced, so catch up:
+    // the list, and the open canvas (merged, as for any change on disk).
+    let lost = false;
+    events.onerror = () => { lost = true; setOffline(true); };
+    events.onopen = () => {
+      setOffline(false);
+      if (!lost) return;
+      lost = false;
+      void refresh();
+      onDiskChange.current(null);
+    };
     const back = () => setPath(pathFromUrl());
     window.addEventListener("popstate", back);
     return () => { events.close(); window.removeEventListener("popstate", back); };
