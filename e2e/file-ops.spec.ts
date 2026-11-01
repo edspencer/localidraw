@@ -167,3 +167,28 @@ test("the open canvas put back on disk (a checkout) picks up again, keeping what
   await expect(page.locator(".ld-notice")).toHaveCount(0);
   await expect.poll(() => folder.elements("notes.excalidraw").length).toBe(2);
 });
+
+// The deletion can be heard before the file arrives at its new path (or back at its old one). With nothing drawn
+// meanwhile there's nothing to save, and the status went on saying "Not saved" about a canvas that was safe on disk.
+test("a canvas that seemed deleted, then turns up moved or put back, no longer says it isn't saved", async ({ page, folder, open }) => {
+  const notes = folder.read("notes.excalidraw");
+  await open("notes.excalidraw");
+  await settled(page);
+  const status = page.locator(".ld-status");
+  const notice = page.locator(".ld-notice", { hasText: "deleted or moved on disk" });
+
+  folder.remove("notes.excalidraw");
+  await expect(notice).toBeVisible();
+  await expect(status).toHaveText("Not saved");
+  mkdirSync(join(folder.root, "archive"));
+  folder.writeRaw("archive/notes.excalidraw", notes); // moved: the same content, somewhere else
+  await page.waitForFunction(() => window.localidraw?.path === "archive/notes.excalidraw");
+  await expect(notice).toHaveCount(0);
+  await expect(status).not.toHaveText(/Not saved/);
+
+  folder.remove("archive/notes.excalidraw");
+  await expect(notice).toBeVisible();
+  folder.writeRaw("archive/notes.excalidraw", notes); // put back, as it was
+  await expect(notice).toHaveCount(0);
+  await expect(status).not.toHaveText(/Not saved/);
+});

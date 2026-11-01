@@ -255,6 +255,7 @@ export function CanvasView({ path, sidebar, offline, onDiskChange, onMoved, cont
     if (s.gone) {
       s.gone = false;
       setGone(false);
+      setStatus(""); // no longer "Not saved": what's on disk is what's on screen, unless something was drawn meanwhile
       void save(s); // whatever was drawn while it seemed gone
     }
     setShown(to);
@@ -426,6 +427,7 @@ export function CanvasView({ path, sidebar, offline, onDiskChange, onMoved, cont
         // It's back (a checkout, an undo): take what's there, then save what was drawn meanwhile.
         s.gone = false;
         setGone(false);
+        setStatus("");
         void catchUp(s, hash).then(() => save(s));
         return;
       }
