@@ -33,9 +33,8 @@ Roughly in priority order within each section. Strike items out, or delete them,
 
 ## Compatibility and platforms
 
-- [ ] **Excalidraw upgrades.** It's pinned at 0.18.1, the version the VS Code extension uses, so files round-trip.
-  Before moving to a newer Excalidraw, check that the extension still opens what we save. React stays at 18 until
-  Excalidraw's bundled Radix packages accept 19.
+- [ ] **Excalidraw upgrades.** Pinned at 0.18.1, the version the VS Code extension uses. Before moving, go through
+  [AGENTS.md's checklist](AGENTS.md#upgrading-excalidraw).
 - [ ] **Other formats?** `.excalidraw.svg` and `.excalidraw.png` (a scene embedded in an image, as the VS Code
   extension and Obsidian write). (`library.excalidrawlib` at the root is the shared Library.)
 - [ ] **11 `npm audit` warnings**, all in devDependencies (Excalidraw's own dependencies). The package ships none,
