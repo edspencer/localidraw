@@ -36,10 +36,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
 - [ ] **Excalidraw upgrades.** It's pinned at 0.18.1, the version the VS Code extension uses, so files round-trip.
   Before moving to a newer Excalidraw, check that the extension still opens what we save. React stays at 18 until
   Excalidraw's bundled Radix packages accept 19.
-- [ ] **Windows**: CI runs it (Node 24) as a best-effort leg that doesn't block. On the first run, typecheck, the
-  tests and the build passed; `smoke:pack` failed at once (`spawnSync npm ENOENT`: `scripts/smoke-pack.mjs` runs
-  `npm` and `mkdir -p` without a shell, and on Windows npm is `npm.cmd`). Still untested beyond that: paths in the
-  page, the recursive `fs.watch` in real use, `explorer` for `--open`. Then make the leg blocking.
 - [ ] **Other formats?** `.excalidraw.svg` and `.excalidraw.png` (a scene embedded in an image, as the VS Code
   extension and Obsidian write). (`library.excalidrawlib` at the root is the shared Library.)
 - [ ] **11 `npm audit` warnings**, all in devDependencies (Excalidraw's own dependencies). The package ships none,
