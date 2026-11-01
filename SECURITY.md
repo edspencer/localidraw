@@ -47,3 +47,23 @@ serving. Localidraw trusts the files in that folder the way your editor does.
 it, put it behind a reverse proxy that does authentication (forward auth to an SSO, basic auth, a VPN such as
 Tailscale), and publish its port only where that proxy can reach it. That someone who gets past your proxy can edit
 the canvases is not a vulnerability in Localidraw.
+
+## `npm audit`
+
+The package has no runtime dependencies, so `npm audit` on an install of it finds nothing. In this repo it reports
+findings in devDependencies, all of them Excalidraw's own dependencies. Excalidraw is bundled into the page
+(`dist/web`), so their code does ship, inside the page's chunks, and each is triaged here. Re-check this list when
+Excalidraw moves (AGENTS.md, "Upgrading Excalidraw").
+
+As of 0.4.x, with Excalidraw pinned at 0.18.1:
+
+| Package | Reached through | Advisory | Fixed here? | Why it doesn't matter in Localidraw |
+| --- | --- | --- | --- | --- |
+| `lodash-es` 4.17.21 | Mermaid, `chevrotain` | GHSA-r5fr-rjxr-66jc, GHSA-f23m-r3pf-42rh, GHSA-xxjr-mmjv-4gpg | **Yes**: `overrides` to `^4.18.1`, a minor of the same major | — |
+| `nanoid` 3.3.3 | Excalidraw | GHSA-mwcw-c2x4-8c55, GHSA-28wg-ghj8-5hjv, GHSA-2v37-7h3g-55p8, GHSA-xwg4-73v4-xw9w | **Yes**: `overrides` (`nanoid@^3`) to `^3.3.18`, a patch | — |
+| `nanoid` 4.0.2 | `@excalidraw/mermaid-to-excalidraw` (exact pin) | GHSA-28wg-ghj8-5hjv, GHSA-2v37-7h3g-55p8, GHSA-xwg4-73v4-xw9w | No: the fix is nanoid 5, a major | Each needs a negative, zero, non-integer or huge size, or a custom generator. It only ever calls `nanoid()`, the default 21 characters. |
+| `katex` 0.16.x | Mermaid (`^0.16`) | GHSA-238p-pmpm-9mq7 | No: the fix is 0.18.2, outside Mermaid's range | It needs prototype pollution to exist already, and KaTeX only renders math in a Mermaid diagram that you type into Excalidraw's own "Mermaid to Excalidraw" dialog, in your page. |
+| `mermaid`, `@excalidraw/mermaid-to-excalidraw`, `@excalidraw/excalidraw` | — | (through `katex` and `nanoid` 4 above) | No: `npm audit fix --force` would move Excalidraw back to 0.17.6 | As above. |
+
+Nothing is fixed with `npm audit fix --force`: it downgrades Excalidraw, which breaks files' round-trip with the VS
+Code extension. An override is only used for a patch or minor of the same major, and the browser tests run against it.
