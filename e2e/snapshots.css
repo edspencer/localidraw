@@ -1,0 +1,3 @@
+/* Applied while the theme snapshots are taken (e2e/snapshots.spec.ts): the drawing isn't under test, only the chrome
+   on top of it, so the canvases are hidden. Playwright's `mask` would paint over their whole box, chrome included. */
+.excalidraw canvas { visibility: hidden; }

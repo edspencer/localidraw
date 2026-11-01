@@ -6,3 +6,7 @@ dist/
 .DS_Store
 # Personal agent rules for this checkout (Claude Code reads it next to CLAUDE.md); never committed.
 CLAUDE.local.md
+# Playwright's output (the browser tests) and the Playwright MCP's scratch captures
+test-results/
+playwright-report/
+.playwright-mcp/

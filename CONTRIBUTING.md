@@ -36,7 +36,12 @@ npm run typecheck
 npm test              # node:test, from source via tsx
 npm run build         # dist/web (esbuild) + dist/server (tsc)
 npm run smoke:pack    # npm pack, install the tarball into a temp prefix, run it as a user would
+npm run test:e2e      # Playwright, in Chromium (run `npx playwright install chromium` once)
 ```
+
+CI also runs the browser tests, and theme snapshots of Localidraw's UI in light and dark, in the official Playwright
+image. If you change how the page looks, remake the snapshots with Docker:
+`npm run test:e2e:snapshots -- --update-snapshots`. [e2e/README.md](e2e/README.md) explains.
 
 `smoke:pack` matters whenever you touch the build or `package.json` (`files`, `bin`, dependencies). It also fails if
 the package outgrows its size budget (the numbers, and why, are at the top of `scripts/smoke-pack.mjs`).

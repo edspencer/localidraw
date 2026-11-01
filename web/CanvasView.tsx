@@ -1,6 +1,6 @@
 // One canvas: Excalidraw on a .excalidraw file, saving as you draw and merging changes made on disk.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { CaptureUpdateAction, DefaultSidebar, Excalidraw, Footer, MainMenu, Sidebar, getCommonBounds, restoreAppState, restoreElements, serializeAsJSON } from "@excalidraw/excalidraw";
+import { CaptureUpdateAction, convertToExcalidrawElements, DefaultSidebar, Excalidraw, Footer, MainMenu, Sidebar, getCommonBounds, restoreAppState, restoreElements, serializeAsJSON } from "@excalidraw/excalidraw";
 import type { AppState, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { getCanvas, putCanvas, type Loaded } from "./api.ts";
 import { changedSince, mergeScenes, versionsOf } from "./merge.ts";
@@ -8,6 +8,23 @@ import { FoldersIcon } from "./icons.tsx";
 import { prefs } from "./prefs.ts";
 
 const SAVE_AFTER_MS = 700;
+
+/**
+ * A handle for the browser tests (e2e/), so they wait on real state instead of sleeping: the open canvas's
+ * Excalidraw API, whether a save is due or in flight, and Excalidraw's skeleton converter (which can't run in Node)
+ * so a test can write the kind of elements a coding agent would. Nothing in the page reads it.
+ */
+export type TestHandle = {
+  path: string;
+  api: ExcalidrawImperativeAPI;
+  /**
+   * The autosave: "due" from a change until its save starts, "saving" until it's done, else "idle"; how many times
+   * it has checked for changes, and how many of those wrote the file.
+   */
+  saves: () => { state: "idle" | "due" | "saving"; checked: number; written: number };
+  convertToExcalidrawElements: typeof convertToExcalidrawElements;
+};
+declare global { interface Window { localidraw?: TestHandle } }
 
 /**
  * Shows the whole drawing in the part of the canvas you can see. Excalidraw's own fit (scrollToContent with
@@ -46,7 +63,7 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
   const [docked, setDocked] = useState(prefs.docked());
   const api = useRef<ExcalidrawImperativeAPI | null>(null);
   // What the screen and the file last agreed on: the file's hash, each element's version, the background.
-  const sync = useRef({ hash: "", base: new Map<string, number>(), background: "", timer: undefined as any, saving: false, again: false });
+  const sync = useRef({ hash: "", base: new Map<string, number>(), background: "", timer: undefined as any, saving: false, again: false, checked: 0, written: 0 });
 
   /** The file's newer state onto the screen, keeping what was drawn here since. */
   const absorb = useCallback((loaded: Loaded) => {
@@ -69,6 +86,7 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
     if (s.saving) { s.again = true; return; }
     const elements = ex.getSceneElementsIncludingDeleted();
     const appState = ex.getAppState();
+    s.checked++;
     if (!changedSince(elements, s.base) && appState.viewBackgroundColor === s.background) return;
     s.saving = true;
     setStatus("Saving…");
@@ -80,6 +98,7 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
         return;
       }
       s.hash = result.hash;
+      s.written++;
       s.base = versionsOf(elements);
       s.background = appState.viewBackgroundColor;
       setStatus(`Saved ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`);
@@ -121,6 +140,7 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
         e.preventDefault();
         e.stopPropagation();
         clearTimeout(sync.current.timer);
+        sync.current.timer = undefined;
         void save();
       }
     };
@@ -129,6 +149,8 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
       live = false;
       window.removeEventListener("keydown", saveNow, true);
       clearTimeout(sync.current.timer);
+      sync.current.timer = undefined;
+      if (window.localidraw?.path === path) delete window.localidraw;
       void save(); // switching canvases: keep what was drawn
     };
   }, [path]);
@@ -136,7 +158,7 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
   const onChange = useCallback((_elements: unknown, appState: AppState) => {
     prefs.remember(path, appState);
     clearTimeout(sync.current.timer);
-    sync.current.timer = setTimeout(() => void save(), SAVE_AFTER_MS);
+    sync.current.timer = setTimeout(() => { sync.current.timer = undefined; void save(); }, SAVE_AFTER_MS);
   }, [path, save]);
 
   if (!initial) return <div className="ld-loading">{status || "Opening…"}</div>;
@@ -145,6 +167,10 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
       initialData={initial}
       excalidrawAPI={(a) => {
         api.current = a;
+        const s = sync.current;
+        window.localidraw = { path, api: a, convertToExcalidrawElements, saves: () => ({
+          state: s.saving || s.again ? "saving" : s.timer !== undefined ? "due" : "idle", checked: s.checked, written: s.written,
+        }) };
         // The first time a canvas is opened here, show all of it; after that, where you left it.
         if (initial.fit) setTimeout(() => fitToView(a), 300);
       }}
