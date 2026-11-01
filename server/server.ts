@@ -1,7 +1,7 @@
 // The HTTP server: the built page, the canvas API, and server-sent events when canvases change on disk.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
-import { extname, resolve, sep } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync, watch, type Dirent, type FSWatcher } from "node:fs";
+import { extname, join, resolve, sep } from "node:path";
 import { contentHash, EMPTY_SCENE, listProjects, relativePath, resolveInRoot, SKIPPED_DIRS, writeAtomic } from "./files.ts";
 import { localOnly } from "./security.ts";
 
@@ -37,13 +37,62 @@ function sendStatic(res: ServerResponse, base: string, rel: string) {
   res.writeHead(200, { "content-type": TYPES[extname(abs)] ?? "application/octet-stream" }).end(readFileSync(abs));
 }
 
+const skipped = (rel: string) => rel.split("/").some((p) => p.startsWith(".") || SKIPPED_DIRS.has(p));
+
+/**
+ * Calls `changed` with the root-relative path of whatever changes under the root, until it's closed.
+ *
+ * On macOS and Windows that's one recursive watch. On Linux it's a watch on each folder, as folders come and go:
+ * Node's recursive watch there follows each file, so it goes deaf to a file once another is renamed over it, which
+ * is how Localidraw saves (writeAtomic) and how many editors and agents do. A folder's own watch reports its entries
+ * by name, whatever is renamed over them. It also skips dot-folders and node_modules instead of walking them.
+ */
+function watchTree(root: string, changed: (rel: string) => void): { close: () => void } {
+  if (process.platform !== "linux") {
+    const w = watch(root, { recursive: true }, (_type, name) => { if (name) changed(name.split(sep).join("/")); });
+    return { close: () => w.close() };
+  }
+  const watchers = new Map<string, FSWatcher>(); // by root-relative folder, "" for the root
+  const unwatch = (dir: string) => {
+    for (const [d, w] of watchers) if (dir === "" || d === dir || d.startsWith(`${dir}/`)) { w.close(); watchers.delete(d); }
+  };
+  const add = (dir: string) => {
+    if (watchers.has(dir)) return;
+    const abs = join(root, dir);
+    let w: FSWatcher;
+    try {
+      w = watch(abs, (_type, name) => {
+        if (!name) return;
+        const rel = dir ? `${dir}/${name}` : name;
+        if (!skipped(rel)) {
+          // A folder that came is watched from now on; one that went stops being watched.
+          let isDir = false;
+          try { isDir = statSync(join(root, rel)).isDirectory(); } catch {}
+          if (isDir) add(rel); else if (watchers.has(rel)) unwatch(rel);
+        }
+        changed(rel);
+      });
+    } catch {
+      return; // gone already, or unreadable
+    }
+    w.on("error", () => unwatch(dir));
+    watchers.set(dir, w);
+    let entries: Dirent[] = [];
+    try { entries = readdirSync(abs, { withFileTypes: true }); } catch {}
+    for (const e of entries) {
+      const rel = dir ? `${dir}/${e.name}` : e.name;
+      if (e.isDirectory() && !skipped(rel)) add(rel);
+    }
+  };
+  add("");
+  return { close: () => unwatch("") };
+}
+
 /** Watches the root for canvas changes and tells every connected page, debounced per file. */
-function watchCanvases(root: string, send: (event: object) => void): FSWatcher {
+function watchCanvases(root: string, send: (event: object) => void): { close: () => void } {
   const pending = new Map<string, NodeJS.Timeout>();
-  return watch(root, { recursive: true }, (_type, name) => {
-    if (!name) return;
-    const rel = name.split(sep).join("/");
-    if (rel.split("/").some((p) => p.startsWith(".") || SKIPPED_DIRS.has(p))) return;
+  return watchTree(root, (rel) => {
+    if (skipped(rel)) return;
     clearTimeout(pending.get(rel));
     pending.set(rel, setTimeout(() => {
       pending.delete(rel);
