@@ -41,6 +41,17 @@ localidraw [folder] [--port <n>] [--open]
 | `-v`, `--version` | Prints the version. |
 | `-h`, `--help` | Prints the options. |
 
+These are for [hosting it](/self-hosting/), on a server or in Docker, behind a reverse proxy:
+
+| Option | What it does |
+| --- | --- |
+| `--host <addr>` | The address to listen on. The default is `127.0.0.1`, or `$LOCALIDRAW_HOST` if that's set. Anything that isn't loopback (`0.0.0.0`, a LAN address) needs at least one `--allowed-host`, or it won't start. |
+| `--allowed-host <name>` | A host name to answer to besides localhost, such as `draw.example.com`: the name alone, without `https://` or a port. Repeat it for more, or set `$LOCALIDRAW_ALLOWED_HOSTS` to a comma-separated list. Requests for any other name are refused. |
+| `--poll [ms]` | Finds changes by checking the files every `ms` milliseconds (2000 if you leave it out) instead of by file events. For a folder on a network mount (NFS, SMB), where another machine's writes send no events. `$LOCALIDRAW_POLL` takes the milliseconds, or `true`. |
+
+A flag wins over its environment variable, and `--allowed-host` flags replace `$LOCALIDRAW_ALLOWED_HOSTS` rather
+than adding to it.
+
 If the port is taken, it says so and stops; run it with `--port` and another number. One Localidraw per folder: two
 servers on the same folder would each save without knowing about the other's page.
 
@@ -53,8 +64,9 @@ servers on the same folder would each save without knowing about the other's pag
 
 ## Safety
 
-Localidraw listens on `127.0.0.1` only, so nothing else on your network can reach it. It refuses requests whose
-`Host` or `Origin` isn't localhost, so a web page you visit can't read or write your canvases through it.
+Localidraw listens on `127.0.0.1`, so nothing else on your network can reach it. It refuses requests whose `Host` or
+`Origin` isn't localhost, so a web page you visit can't read or write your canvases through it. Hosting it is
+something you turn on, by name: see [Self-hosting](/self-hosting/).
 
 It only touches `.excalidraw` files inside the folder you gave it, outside dot-folders and `node_modules`. It creates
 and saves canvases; it never deletes or renames anything. Do that in your shell, your file manager or git.

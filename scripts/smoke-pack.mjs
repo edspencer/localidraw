@@ -2,7 +2,7 @@
 // and checks that it serves the page, the projects and a canvas, as a user's `npx localidraw` would. It also holds
 // the package to a size budget.
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -15,6 +15,7 @@ const mb = (bytes) => `${(bytes / 1e6).toFixed(1)} MB`;
 const sizeOf = (path) => statSync(path).isDirectory() ? readdirSync(path).reduce((n, f) => n + sizeOf(join(path, f)), 0) : statSync(path).size;
 
 const root = join(import.meta.dirname, "..");
+const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const tmp = mkdtempSync(join(tmpdir(), "localidraw-smoke-"));
 const fail = (msg) => { console.error(`smoke: ${msg}`); process.exitCode = 1; };
 let child;
@@ -39,10 +40,15 @@ try {
   if (!started) throw new Error("the CLI didn't start");
   const base = `http://localhost:${port}`;
   const page = await fetch(`${base}/`);
-  if (!page.ok || !(await page.text()).includes("/static/app.js")) fail("no page");
-  for (const asset of ["/static/app.js", "/static/app.css", "/static/favicon.svg"]) {
+  const html = page.ok ? await page.text() : "";
+  // The page's script and stylesheet have a hash in their names (scripts/build-web.mjs).
+  const assets = [...html.matchAll(/(?:src|href)="(\/static\/[^"]+)"/g)].map((m) => m[1]);
+  if (!assets.some((a) => /\/static\/app-\w+\.js$/.test(a)) || !assets.some((a) => /\/static\/app-\w+\.css$/.test(a))) fail("no page");
+  for (const asset of assets) {
     if (!(await fetch(base + asset)).ok) fail(`missing ${asset}`);
   }
+  const health = await (await fetch(`${base}/api/health`)).json();
+  if (health.ok !== true || health.version !== version) fail(`unexpected health: ${JSON.stringify(health)}`);
   const { projects } = await (await fetch(`${base}/api/projects`)).json();
   if (projects?.[0]?.canvases?.[0]?.path !== "project/one.excalidraw") fail(`unexpected projects: ${JSON.stringify(projects)}`);
   const canvas = await fetch(`${base}/api/canvas?path=project/one.excalidraw`);

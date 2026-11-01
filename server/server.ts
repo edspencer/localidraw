@@ -1,21 +1,32 @@
 // The HTTP server: the built page, the canvas API, and server-sent events when canvases change on disk.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { existsSync, readdirSync, readFileSync, statSync, watch, type Dirent, type FSWatcher } from "node:fs";
-import { extname, join, resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { contentHash, EMPTY_SCENE, listProjects, parseCanvas, relativePath, resolveInRoot, SKIPPED_DIRS, writeAtomic } from "./files.ts";
-import { localOnly } from "./security.ts";
+import { pkg } from "./package.ts";
+import { guard, isLoopbackAddress } from "./security.ts";
+import { send, staticFiles } from "./static.ts";
 
-export type Options = { root: string; port: number; webDir: string };
+export type Options = {
+  root: string;
+  port: number;
+  webDir: string;
+  /** The address to listen on (default 127.0.0.1). Anything but loopback needs `allowedHosts`. */
+  host?: string;
+  /** Host names to answer to besides loopback, normalised (parseAllowedHost in security.ts). */
+  allowedHosts?: string[];
+  /** Look for changes by checking the files every `poll` ms, instead of by file events (for network mounts). */
+  poll?: number;
+};
 export type Running = { server: Server; url: string; close: () => Promise<void> };
 
-const TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2",
-  ".ttf": "font/ttf", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".json": "application/json",
-};
+export const DEFAULT_HOST = "127.0.0.1";
+export const DEFAULT_POLL = 2000;
+
 const MAX_BODY = 64 * 1024 * 1024; // a canvas with embedded images can be large; this only bounds a runaway request
 
-function json(res: ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(body));
+function json(req: IncomingMessage, res: ServerResponse, status: number, body: unknown) {
+  return send(req, res, status, { "content-type": "application/json", "cache-control": "no-store" }, Buffer.from(JSON.stringify(body)));
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -29,12 +40,6 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on("end", () => ok(Buffer.concat(chunks).toString("utf8")));
     req.on("error", fail);
   });
-}
-
-function sendStatic(res: ServerResponse, base: string, rel: string) {
-  const abs = resolve(base, decodeURIComponent(rel));
-  if (!abs.startsWith(base + sep) || !existsSync(abs) || !statSync(abs).isFile()) return res.writeHead(404).end();
-  res.writeHead(200, { "content-type": TYPES[extname(abs)] ?? "application/octet-stream" }).end(readFileSync(abs));
 }
 
 const skipped = (rel: string) => rel.split("/").some((p) => p.startsWith(".") || SKIPPED_DIRS.has(p));
@@ -88,48 +93,95 @@ function watchTree(root: string, changed: (rel: string) => void): { close: () =>
   return { close: () => unwatch("") };
 }
 
+/**
+ * Calls `changed` like watchTree, but by looking: every `interval` ms it lists the folders and canvases under the root
+ * and compares each canvas's size, modification time and inode with the last look. For network mounts (NFS, SMB),
+ * where the file events for another machine's writes never arrive.
+ */
+function pollTree(root: string, interval: number, changed: (rel: string) => void): { close: () => void } {
+  const look = () => {
+    const seen = new Map<string, string>(); // root-relative path → a stamp; folders end in "/"
+    const walk = (dir: string) => {
+      let entries: Dirent[];
+      try { entries = readdirSync(join(root, dir), { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        const rel = dir ? `${dir}/${e.name}` : e.name;
+        if (skipped(rel)) continue;
+        if (e.isDirectory()) { seen.set(`${rel}/`, ""); walk(rel); }
+        else if (e.name.endsWith(".excalidraw")) {
+          try {
+            const s = statSync(join(root, rel));
+            seen.set(rel, `${s.size}:${s.mtimeMs}:${s.ino}`);
+          } catch {} // gone since the listing
+        }
+      }
+    };
+    walk("");
+    return seen;
+  };
+  let last = look();
+  let timer: NodeJS.Timeout;
+  const tick = () => {
+    const now = look();
+    for (const [rel, stamp] of now) if (last.get(rel) !== stamp) changed(rel.replace(/\/$/, ""));
+    for (const rel of last.keys()) if (!now.has(rel)) changed(rel.replace(/\/$/, ""));
+    last = now;
+    timer = setTimeout(tick, interval); // after the look, so a slow mount never has two at once
+  };
+  timer = setTimeout(tick, interval);
+  return { close: () => clearTimeout(timer) };
+}
+
 /** Watches the root for canvas changes and tells every connected page, debounced per file. */
-function watchCanvases(root: string, send: (event: object) => void): { close: () => void } {
+function watchCanvases(root: string, poll: number | undefined, announce: (event: object) => void): { close: () => void } {
   const pending = new Map<string, NodeJS.Timeout>();
-  return watchTree(root, (rel) => {
+  const changed = (rel: string) => {
     if (skipped(rel)) return;
     clearTimeout(pending.get(rel));
     pending.set(rel, setTimeout(() => {
       pending.delete(rel);
-      if (!rel.endsWith(".excalidraw")) return send({ type: "projects" }); // a folder came or went
+      if (!rel.endsWith(".excalidraw")) return announce({ type: "projects" }); // a folder came or went
       const abs = resolve(root, rel);
-      if (!existsSync(abs)) return send({ type: "projects" });
+      if (!existsSync(abs)) return announce({ type: "projects" });
       const content = readFileSync(abs, "utf8");
       try {
         parseCanvas(content);
       } catch {
         // Caught mid-write by a tool that doesn't write atomically (its next event follows), or not a scene at all.
-        return send({ type: "projects" });
+        return announce({ type: "projects" });
       }
-      send({ type: "changed", path: rel, hash: contentHash(content) });
-      send({ type: "projects" });
+      announce({ type: "changed", path: rel, hash: contentHash(content) });
+      announce({ type: "projects" });
     }, 120));
-  });
+  };
+  return poll ? pollTree(root, poll, changed) : watchTree(root, changed);
 }
 
-export function startServer({ root, port, webDir }: Options): Promise<Running> {
+export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHosts = [], poll }: Options): Promise<Running> {
+  if (!isLoopbackAddress(host) && allowedHosts.length === 0) {
+    // Without one, every request would be refused anyway; this says why, before anything listens.
+    return Promise.reject(new Error(`listening on ${host} needs at least one allowed host name (--allowed-host)`));
+  }
   const clients = new Set<ServerResponse>();
-  const send = (event: object) => { for (const c of clients) c.write(`data: ${JSON.stringify(event)}\n\n`); };
-  const watcher = watchCanvases(root, send);
-  const index = readFileSync(resolve(webDir, "index.html"), "utf8");
+  const announce = (event: object) => { for (const c of clients) c.write(`data: ${JSON.stringify(event)}\n\n`); };
+  const watcher = watchCanvases(root, poll, announce);
+  const serveStatic = staticFiles(resolve(webDir));
 
   const server = createServer(async (req, res) => {
-    if (!localOnly(req, res)) return;
+    if (!guard(req, res, allowedHosts)) return;
     // Not `new URL(req.url, base)`: a path starting `//` would be read as a host, and throw.
     let url: URL;
     try { url = new URL(`http://localhost${req.url ?? "/"}`); } catch { return res.writeHead(400).end(); }
     const path = url.pathname;
+    const read = req.method === "GET" || req.method === "HEAD"; // Node leaves out the body for a HEAD
     try {
-      if (req.method === "GET" && path === "/") return res.writeHead(200, { "content-type": TYPES[".html"] }).end(index);
-      if (req.method === "GET" && path.startsWith("/static/")) return sendStatic(res, webDir, path.slice("/static/".length));
-      if (req.method === "GET" && path === "/api/projects") return json(res, 200, { root, projects: listProjects(root) });
+      if (read && path === "/") return await serveStatic(req, res, "index.html");
+      if (read && path.startsWith("/static/")) return await serveStatic(req, res, path.slice("/static/".length));
+      if (read && path === "/api/health") return await json(req, res, 200, { ok: true, version: pkg.version });
+      if (req.method === "GET" && path === "/api/projects") return await json(req, res, 200, { root, projects: listProjects(root) });
       if (req.method === "GET" && path === "/api/events") {
-        res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+        // Never compressed, and `x-accel-buffering: no`, so a proxy passes each event on as it comes.
+        res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive", "x-accel-buffering": "no" });
         res.write(": connected\n\n");
         clients.add(res);
         const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
@@ -138,17 +190,17 @@ export function startServer({ root, port, webDir }: Options): Promise<Running> {
       }
       if (path === "/api/canvas") {
         const abs = resolveInRoot(root, url.searchParams.get("path"), "file");
-        if (!abs) return json(res, 400, { error: "That isn't a .excalidraw path inside the folder." });
+        if (!abs) return json(req, res, 400, { error: "That isn't a .excalidraw path inside the folder." });
         // 422: the file is there, but it isn't a scene to open or merge.
         const loaded = (content: string, status: number) => {
           try {
-            return json(res, status, { hash: contentHash(content), scene: parseCanvas(content) });
+            return json(req, res, status, { hash: contentHash(content), scene: parseCanvas(content) });
           } catch (err) {
-            return json(res, 422, { error: (err as Error).message });
+            return json(req, res, 422, { error: (err as Error).message });
           }
         };
         if (req.method === "GET") {
-          if (!existsSync(abs)) return json(res, 404, { error: "There's no canvas at that path." });
+          if (!existsSync(abs)) return json(req, res, 404, { error: "There's no canvas at that path." });
           return loaded(readFileSync(abs, "utf8"), 200);
         }
         if (req.method === "PUT") {
@@ -159,32 +211,35 @@ export function startServer({ root, port, webDir }: Options): Promise<Running> {
           const content = await readBody(req);
           JSON.parse(content);
           writeAtomic(abs, content.endsWith("\n") ? content : `${content}\n`);
-          return json(res, 200, { hash: contentHash(readFileSync(abs, "utf8")) });
+          return json(req, res, 200, { hash: contentHash(readFileSync(abs, "utf8")) });
         }
       }
       if (req.method === "POST" && path === "/api/canvases") {
         const { path: wanted } = JSON.parse(await readBody(req));
         const withExt = typeof wanted === "string" && !wanted.endsWith(".excalidraw") ? `${wanted.trim()}.excalidraw` : wanted;
         const abs = resolveInRoot(root, withExt, "file");
-        if (!abs) return json(res, 400, { error: "That isn't a path inside the folder." });
-        if (existsSync(abs)) return json(res, 409, { error: "There's already a canvas there." });
+        if (!abs) return json(req, res, 400, { error: "That isn't a path inside the folder." });
+        if (existsSync(abs)) return json(req, res, 409, { error: "There's already a canvas there." });
         writeAtomic(abs, `${JSON.stringify(EMPTY_SCENE, null, 2)}\n`);
-        return json(res, 201, { path: relativePath(root, abs) });
+        return json(req, res, 201, { path: relativePath(root, abs) });
       }
-      return json(res, 404, { error: "Not found." });
+      return json(req, res, 404, { error: "Not found." });
     } catch (err) {
-      return json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      return json(req, res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
   });
 
   return new Promise((ok, fail) => {
     server.once("error", fail);
-    server.listen(port, "127.0.0.1", () => {
+    server.listen(port, host.replace(/^\[(.*)\]$/, "$1"), () => {
       const address = server.address();
       const actual = typeof address === "object" && address ? address.port : port;
+      // Loopback, or every address (0.0.0.0, ::), is reachable as localhost; one particular address only as itself.
+      const local = isLoopbackAddress(host) || host === "0.0.0.0" || host === "::" || host === "[::]";
+      const at = local ? "localhost" : host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
       ok({
         server,
-        url: `http://localhost:${actual}/`,
+        url: `http://${at}:${actual}/`,
         close: () => new Promise((done) => {
           watcher.close();
           for (const c of clients) c.end();

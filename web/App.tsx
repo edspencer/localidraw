@@ -29,26 +29,37 @@ export function App() {
   useEffect(() => {
     // With no canvas in the URL, open the first one there is.
     void refresh().then((ps) => { if (!pathFromUrl() && ps[0]?.canvases[0]) open(ps[0].canvases[0].path, true); });
-    const events = new EventSource("/api/events");
-    events.onmessage = (m) => {
-      const e = JSON.parse(m.data);
-      if (e.type === "projects") void refresh();
-      if (e.type === "changed" && e.path === pathFromUrl()) onDiskChange.current(e.hash);
-    };
-    // The browser reconnects by itself. Changes made on disk while it was away were never announced, so catch up:
-    // the list, and the open canvas (merged, as for any change on disk).
+    let events: EventSource;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     let lost = false;
-    events.onerror = () => { lost = true; setOffline(true); };
-    events.onopen = () => {
-      setOffline(false);
-      if (!lost) return;
-      lost = false;
-      void refresh();
-      onDiskChange.current(null);
+    const connect = () => {
+      events = new EventSource("/api/events");
+      events.onmessage = (m) => {
+        const e = JSON.parse(m.data);
+        if (e.type === "projects") void refresh();
+        if (e.type === "changed" && e.path === pathFromUrl()) onDiskChange.current(e.hash);
+      };
+      events.onerror = () => {
+        lost = true;
+        setOffline(true);
+        // When the server is simply gone, the browser reconnects by itself. Through a reverse proxy, the proxy answers
+        // for it (a 502), and the browser takes that as final and stops; so start again ourselves.
+        if (events.readyState === EventSource.CLOSED) retry = setTimeout(connect, 2000);
+      };
+      // Changes made on disk while it was away were never announced, so catch up: the list, and the open canvas
+      // (merged, as for any change on disk).
+      events.onopen = () => {
+        setOffline(false);
+        if (!lost) return;
+        lost = false;
+        void refresh();
+        onDiskChange.current(null);
+      };
     };
+    connect();
     const back = () => setPath(pathFromUrl());
     window.addEventListener("popstate", back);
-    return () => { events.close(); window.removeEventListener("popstate", back); };
+    return () => { clearTimeout(retry); events.close(); window.removeEventListener("popstate", back); };
   }, []);
 
   useEffect(() => {

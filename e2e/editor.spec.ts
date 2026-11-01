@@ -223,6 +223,37 @@ test("after the server comes back, the page catches up with what changed while i
   await app.close();
 });
 
+// Behind a reverse proxy, a stopped server doesn't refuse the connection: the proxy answers for it with a 502, which
+// an EventSource takes as final. The page has to start it again itself.
+test("after a proxy answered 502 for the stopped server, the page still reconnects", async ({ page, folder }) => {
+  let app = await startServer({ root: folder.root, port: 0, webDir: join(import.meta.dirname, "../dist/web") });
+  const { port } = new URL(app.url);
+  const events = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/events");
+  await page.goto(`${app.url}?canvas=notes.excalidraw`);
+  await events;
+  await waitForCanvas(page, "notes.excalidraw");
+  await settled(page);
+
+  let proxyDown = true;
+  const refused = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/events" && r.status() === 502);
+  await page.route("**/api/events", (route) => (proxyDown ? route.fulfill({ status: 502, body: "Bad Gateway" }) : route.continue()));
+  const stopped = app.close();
+  app.server.closeAllConnections();
+  await stopped;
+  await refused; // the browser's own reconnect met the 502, and it won't try again by itself
+  await expect(page.locator(".ld-offline")).toBeVisible();
+
+  const scene = folder.scene("notes.excalidraw");
+  const added = await fromSkeletons(page, [{ type: "rectangle", x: 0, y: 300, width: 200, height: 80 }]);
+  folder.write("notes.excalidraw", { ...scene, elements: [...scene.elements, ...added] });
+  app = await startServer({ root: folder.root, port: Number(port), webDir: join(import.meta.dirname, "../dist/web") });
+  proxyDown = false;
+
+  await expect(page.locator(".ld-offline")).toBeHidden({ timeout: 15_000 });
+  await expect.poll(async () => (await onScreen(page)).length).toBe(2);
+  await app.close();
+});
+
 test("putting an older version of the file back (git checkout) sticks", async ({ page, folder, open }) => {
   const original = folder.read("notes.excalidraw");
   await open("notes.excalidraw");

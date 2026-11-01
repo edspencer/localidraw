@@ -28,8 +28,9 @@ machine. There's no export step and no cloud copy: what you draw is saved straig
 - **Looks like Excalidraw, because it is.** It's Excalidraw 0.18.1, the version the VS Code extension uses, so files
   stay compatible both ways. Localidraw's own additions follow Excalidraw's UI conventions
   ([docs/AESTHETIC.md](docs/AESTHETIC.md)).
-- **Works offline, and only for you.** Fonts and all are in the package. It listens on 127.0.0.1 only, and refuses
-  requests from other hosts and sites.
+- **Works offline, and only for you.** Fonts and all are in the package. It listens on 127.0.0.1, and refuses
+  requests from other hosts and sites. You can [host it](https://localidraw.edspencer.net/self-hosting/) for a team,
+  behind a reverse proxy that does the login.
 
 The documentation is at **https://localidraw.edspencer.net**, including
 [how a coding agent should edit a canvas](https://localidraw.edspencer.net/agents/).
@@ -37,12 +38,23 @@ The documentation is at **https://localidraw.edspencer.net**, including
 ## Options
 
 ```
-localidraw [folder] [--port <n>] [--open]
+localidraw [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>] [--poll [ms]]
 ```
 
 - `folder`: where the canvases are (default: the current folder). `node_modules` and dot-folders are skipped.
 - `--port <n>`: the port (default 3729, which spells "DRAW" on a phone keypad, or `$PORT`).
 - `--open`: open it in your browser.
+
+To host it (on a server, or in Docker, behind a reverse proxy):
+
+- `--host <addr>`: the address to listen on (default `127.0.0.1`, or `$LOCALIDRAW_HOST`).
+- `--allowed-host <name>`: a host name to answer to besides localhost, such as `draw.example.com`. Repeat it for more,
+  or set `$LOCALIDRAW_ALLOWED_HOSTS` (comma-separated). A `--host` beyond loopback won't start without one.
+- `--poll [ms]`: find changes by checking the files every so often (default 2000 ms) rather than by file events, for
+  a folder on NFS or SMB, or `$LOCALIDRAW_POLL`.
+
+Localidraw has no login of its own: when you host it, authentication is the reverse proxy's job.
+[Self-hosting](https://localidraw.edspencer.net/self-hosting/) has the details and the limits.
 
 The open canvas is in the URL (`?canvas=path/in/folder.excalidraw`), so you can bookmark it. Your viewport per canvas,
 the theme and the sidebar are remembered by the browser, not written into the files.
