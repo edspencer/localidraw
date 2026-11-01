@@ -1,8 +1,9 @@
-import { after, before, test } from "node:test";
+import { after, before, mock, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import fs, { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { request, type IncomingHttpHeaders } from "node:http";
 import { connect } from "node:net";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import { join } from "node:path";
@@ -203,6 +204,53 @@ test("a canvas that arrives with a new folder is announced", async () => {
 test("canvases in a folder made after the server started are watched", async () => {
   mkdirSync(join(root, "later/deeper"), { recursive: true });
   await announced("later/deeper/c.excalidraw", scene(8), () => writeFileSync(join(root, "later/deeper/c.excalidraw"), scene(8)));
+});
+
+test("changes in node_modules and dot-folders are never announced", async () => {
+  const events: any[] = [];
+  const { port } = new URL(app.url);
+  const req = request({ host: "127.0.0.1", port, path: "/api/events", headers: { host: `localhost:${port}` } }, (res) => {
+    res.setEncoding("utf8");
+    res.on("data", (chunk: string) => { for (const l of chunk.split("\n")) if (l.startsWith("data: ")) events.push(JSON.parse(l.slice(6))); });
+  });
+  req.end();
+  try {
+    await announced("top.excalidraw", scene(4), () => {
+      writeFileSync(join(root, "node_modules/pkg/hidden.excalidraw"), scene(3));
+      writeFileSync(join(root, ".git/hidden.excalidraw"), scene(3));
+      writeFileSync(join(root, "top.excalidraw"), scene(4));
+    });
+  } finally {
+    req.destroy();
+  }
+  assert.deepEqual(events.filter((e) => e.path?.includes("hidden")), []);
+});
+
+// On Linux each folder is its own inotify watch. Skipped folders get none, and past the system's limit the server
+// says so, once, instead of going deaf to a folder in silence.
+test("on Linux, skipped folders aren't watched, and running out of watches is reported once", { skip: process.platform !== "linux" }, async () => {
+  const watched: string[] = [];
+  const real = fs.watch;
+  mock.method(fs, "watch", (path: string, ...rest: any[]) => {
+    watched.push(path);
+    if (path.includes(`${join("team", "alpha")}`) || path.endsWith("later")) throw Object.assign(new Error("no space"), { code: "ENOSPC" });
+    return (real as any)(path, ...rest);
+  });
+  const errors = mock.method(console, "error", () => {});
+  syncBuiltinESMExports();
+  let limited: Running | undefined;
+  try {
+    limited = await startServer({ root, port: 0, webDir: web });
+    assert.ok(watched.includes(root));
+    assert.ok(watched.some((p) => p.endsWith(join("diagrams", "team"))));
+    assert.deepEqual(watched.filter((p) => /node_modules|[\\/]\.git|\.localidraw/.test(p)), []);
+    assert.equal(errors.mock.callCount(), 1);
+    assert.match(String(errors.mock.calls[0].arguments[0]), /limit on file watches.*max_user_watches.*--poll/);
+  } finally {
+    await limited?.close();
+    mock.restoreAll();
+    syncBuiltinESMExports();
+  }
 });
 
 test("writes must be JSON (415), so no page can send one cross-site without a preflight", async () => {

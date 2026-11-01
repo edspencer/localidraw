@@ -201,4 +201,8 @@ These come from what Localidraw is, a file server for one folder, and they'll st
   but if you both move the same box, the later save wins.
 - **File events can be missed** on NFS and SMB mounts, and through Docker Desktop's bind mounts on macOS. Use
   `--poll` there.
+- **On Linux, every folder is a file watch.** Localidraw watches each folder under the root (not dot-folders or
+  `node_modules`), and the system limits how many watches a user has (`fs.inotify.max_user_watches`). In a very big
+  tree it says so at startup if it runs out; raise the limit (`sysctl fs.inotify.max_user_watches=524288`), or use
+  `--poll`.
 - **There's no login,** and no record of who changed what. That's the proxy's job, and git's.
