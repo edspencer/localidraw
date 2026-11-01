@@ -38,7 +38,8 @@ npm run build         # dist/web (esbuild) + dist/server (tsc)
 npm run smoke:pack    # npm pack, install the tarball into a temp prefix, run it as a user would
 ```
 
-`smoke:pack` matters whenever you touch the build or `package.json` (`files`, `bin`, dependencies).
+`smoke:pack` matters whenever you touch the build or `package.json` (`files`, `bin`, dependencies). It also fails if
+the package outgrows its size budget (the numbers, and why, are at the top of `scripts/smoke-pack.mjs`).
 
 ## The rules
 
