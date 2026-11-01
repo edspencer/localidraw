@@ -1,0 +1,22 @@
+{
+  // Typechecks everything: the server, the page, the tests and the scripts. Nothing is emitted from here.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "types": ["node"],
+    // @excalidraw/excalidraw's .d.ts files import these, but ship them in its own dist/types.
+    "paths": {
+      "@excalidraw/math": ["./node_modules/@excalidraw/excalidraw/dist/types/math/index.d.ts"],
+      "@excalidraw/utils/*": ["./node_modules/@excalidraw/excalidraw/dist/types/utils/*"]
+    }
+  },
+  "include": ["server", "web", "test"]
+}

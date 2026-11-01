@@ -1,0 +1,16 @@
+{
+  // Compiles the server to dist/server for the npm package. The page is bundled by scripts/build-web.mjs.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "rewriteRelativeImportExtensions": true,
+    "rootDir": "server",
+    "outDir": "dist/server",
+    "types": ["node"]
+  },
+  "include": ["server"]
+}
