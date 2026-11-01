@@ -1,7 +1,7 @@
 // Merging a canvas changed on disk into the one on screen, per element. Pure, so the tests can run it in Node.
 
 /** The fields of an Excalidraw element the merge looks at. */
-export type Versioned = { id: string; version: number; index?: string | null; isDeleted?: boolean };
+export type Versioned = { id: string; version: number; versionNonce?: number; index?: string | null; isDeleted?: boolean };
 
 /** Each element's version: what the screen and the file last agreed on. */
 export const versionsOf = (elements: readonly Versioned[]) => new Map(elements.map((e) => [e.id, e.version]));
@@ -13,25 +13,31 @@ export const versionsOf = (elements: readonly Versioned[]) => new Map(elements.m
  *   if it was, the higher version wins, and disk wins a tie;
  * - only on screen: kept if it's new here (not in `base`) or was changed here since; otherwise disk removed it;
  * - only on disk: added.
- * The result is in z-order (Excalidraw's fractional `index`).
+ * The elements are in z-order (Excalidraw's fractional `index`). `replaced` lists the ids of elements changed here
+ * whose change lost to a different one on disk (the same element edited on both sides), so the page can say so.
  */
-export function mergeScenes<E extends Versioned>(local: readonly E[], remote: readonly E[], base: ReadonlyMap<string, number>): E[] {
+export function mergeScenes<E extends Versioned>(local: readonly E[], remote: readonly E[], base: ReadonlyMap<string, number>): { elements: E[]; replaced: string[] } {
   const merged = new Map<string, E>();
+  const replaced: string[] = [];
   const onScreen = new Map(local.map((e) => [e.id, e]));
   for (const r of remote) {
     const l = onScreen.get(r.id);
     const changedHere = l !== undefined && l.version !== base.get(r.id);
-    merged.set(r.id, changedHere && l.version > r.version ? l : r);
+    const keep = changedHere && l.version > r.version;
+    merged.set(r.id, keep ? l : r);
+    // The same version and nonce is the same edit (one already saved), not two.
+    if (changedHere && !keep && !(l.version === r.version && l.versionNonce === r.versionNonce)) replaced.push(r.id);
   }
   for (const l of local) {
     if (merged.has(l.id)) continue;
     const was = base.get(l.id);
     if (was === undefined || l.version > was) merged.set(l.id, l);
   }
-  return [...merged.values()].sort((a, b) => {
+  const elements = [...merged.values()].sort((a, b) => {
     const x = a.index ?? "", y = b.index ?? "";
     return x < y ? -1 : x > y ? 1 : 0;
   });
+  return { elements, replaced };
 }
 
 /** Whether anything was drawn since `base`. Opening a canvas and moving around it never counts. */

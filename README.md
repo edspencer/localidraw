@@ -69,7 +69,8 @@ Every Excalidraw element has a `version` that goes up each time it changes. Loca
 version as of the last time the page and the file agreed. When the file changes on disk:
 
 - an element only the file changed takes the file's copy, even an older one (so a `git checkout` of the file sticks);
-- an element both sides changed keeps the higher version (the file wins a tie);
+- an element both sides changed keeps the higher version (the file wins a tie), and if that's the file's, a notice
+  in the footer says your edit was replaced, and can show you which;
 - an element the file no longer has is removed, unless you've changed it since;
 - anything you've drawn that the file doesn't know about stays.
 

@@ -90,3 +90,5 @@ near-black text.
     `.ExcTextField` style.
 - **The save status** ("Saved", "Saving…", "Updated from disk") sits in Excalidraw's footer, beside the undo
   buttons, in small gray text, as quiet as the rest of the chrome.
+- **A notice** that an edit lost to a change on disk sits beside it, as a small island (`--island-bg-color`,
+  `--shadow-island`), with a violet text button (**Show**) and a gray close icon. It stays until it's dismissed.

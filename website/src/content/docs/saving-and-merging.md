@@ -52,7 +52,10 @@ Changing **the same element** on both sides at once is the only real conflict, a
 That's why an agent should [bump the version](/agents/#the-rules) of anything it changes: an edit that leaves `version`
 alone loses to any edit made in the browser since the last save.
 
-Today the losing side of such a conflict is dropped silently. Showing it is on the list.
+When your side loses, the page says so: a small notice beside the save status, **"An edit of yours was replaced by a
+change on disk"** (or how many). **Show** selects those elements and brings them into view, so you can see what the
+file has now and redo your change if you still want it; the cross dismisses the notice. Nothing is said when your
+edit wins, or when the two sides changed different elements.
 
 ## The open canvas and git
 
