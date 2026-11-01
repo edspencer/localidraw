@@ -34,8 +34,10 @@ built to guarantee, and so what counts as a vulnerability if broken:
   outside dot-folders and `node_modules`, and must be a `.excalidraw` file. Nothing outside it can be read or
   written. (`resolveInRoot` in `server/files.ts`.) The one other file it reads and writes is the folder's shared
   Library, `library.excalidrawlib` at its top, at a fixed path the page can't choose, and only if it already exists.
-- **Nothing written on disk is lost.** Localidraw creates and saves canvases (and saves the Library file). It never
-  deletes or renames a file, and a save based on an older version of a file is refused rather than overwriting it. Writes are atomic: a temporary
+- **Nothing written on disk is lost.** Localidraw creates, saves, renames and moves canvases (and saves the Library
+  file). A rename or move never replaces another file. It never deletes one: deleting a canvas from the sidebar moves
+  it into `.localidraw/trash/` under the folder, where it stays until you remove it yourself. A save based on an older
+  version of a file is refused rather than overwriting it. Writes are atomic: a temporary
   file, then a rename.
 
 Out of scope: anything that needs an attacker who can already run code as you, or write to the folder you're

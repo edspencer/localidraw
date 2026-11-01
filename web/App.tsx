@@ -1,9 +1,10 @@
 // The page: which canvas is open (in the URL), the projects list, and the connection to the server's events.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createCanvas, getProjects, type Project } from "./api.ts";
-import { CanvasesTab } from "./CanvasesTab.tsx";
+import { createCanvas, getProjects, moveCanvas, restoreCanvas, trashCanvas, type Project } from "./api.ts";
+import { CanvasesTab, TrashedNotice, type Trashed, type TrashProps } from "./CanvasesTab.tsx";
 import { CanvasView } from "./CanvasView.tsx";
 import { library } from "./library.ts";
+import { prefs } from "./prefs.ts";
 import { Screen } from "./Screen.tsx";
 
 const pathFromUrl = () => new URLSearchParams(location.search).get("canvas");
@@ -14,6 +15,8 @@ export function App() {
   const [path, setPath] = useState<string | null>(pathFromUrl());
   const [offline, setOffline] = useState(false);
   const onDiskChange = useRef<(path: string | null, hash: string | null) => void>(() => {});
+  const canvases = useRef<{ release: (path: string) => Promise<void> }>({ release: async () => {} });
+  const [trashed, setTrashed] = useState<Trashed | null>(null); // the canvas last deleted, to undo
 
   const refresh = useCallback(async () => {
     const { root, projects } = await getProjects();
@@ -80,19 +83,71 @@ export function App() {
     }
   };
 
-  const tab = <CanvasesTab projects={projects} rootName={rootName} current={path} onOpen={(p) => open(p)} onCreate={create} />;
+  const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+  /** Renames or moves a canvas (saving it first if it's open), and follows it if it is. */
+  const move = async (from: string, to: string) => {
+    try {
+      await canvases.current.release(from);
+      const { path: moved } = await moveCanvas(from, to);
+      prefs.moveViewport(from, moved);
+      await refresh();
+      if (from === pathFromUrl()) open(moved, true);
+      return null;
+    } catch (err) {
+      return message(err);
+    }
+  };
+
+  /** Moves a canvas to the trash (saving it first if it's open), and opens a neighbour if it was the open one. */
+  const trash = async (p: string) => {
+    try {
+      await canvases.current.release(p);
+      const { trashed: where } = await trashCanvas(p);
+      setTrashed({ path: p, trashed: where });
+      const ps = await refresh();
+      if (p === pathFromUrl()) {
+        const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+        const next = (ps.find((x) => x.dir === dir) ?? ps[0])?.canvases[0]?.path;
+        if (next) open(next, true);
+        else { history.replaceState(null, "", "/"); setPath(null); }
+      }
+      return null;
+    } catch (err) {
+      return message(err);
+    }
+  };
+
+  const undo = async () => {
+    if (!trashed) return;
+    try {
+      const { path: back } = await restoreCanvas(trashed.trashed, trashed.path);
+      setTrashed(null);
+      await refresh();
+      open(back);
+    } catch (err) {
+      setTrashed({ ...trashed, error: message(err) });
+    }
+  };
+
+  const trashProps = { trashed, onUndo: undo, onDismiss: () => setTrashed(null) };
+  const tab = (
+    <CanvasesTab projects={projects} rootName={rootName} current={path} onOpen={(p) => open(p)} onCreate={create}
+      onMove={move} onTrash={trash} {...trashProps} />
+  );
   return (
     <div className="ld-app">
       {offline && <div className="ld-offline">Localidraw isn't running: start it again and this page reconnects.</div>}
       {path
-        ? <CanvasView path={path} sidebar={tab} onDiskChange={(h) => { onDiskChange.current = h; }} />
-        : <EmptyFolder rootName={rootName} onCreate={create} />}
+        ? <CanvasView path={path} sidebar={tab} onDiskChange={(h) => { onDiskChange.current = h; }} control={(c) => { canvases.current = c; }} />
+        : <EmptyFolder rootName={rootName} onCreate={create} {...trashProps} />}
     </div>
   );
 }
 
-/** A folder with no canvases yet: offer to make the first. */
-function EmptyFolder({ rootName, onCreate }: { rootName: string; onCreate: (path: string) => Promise<string | null> }) {
+/** A folder with no canvases yet: offer to make the first (or to bring back the one just deleted). */
+function EmptyFolder({ rootName, onCreate, trashed, onUndo, onDismiss }:
+  { rootName: string; onCreate: (path: string) => Promise<string | null> } & TrashProps) {
   const [error, setError] = useState<string | null>(null);
   return (
     <Screen>
@@ -103,6 +158,7 @@ function EmptyFolder({ rootName, onCreate }: { rootName: string; onCreate: (path
           Make the first one
         </button>
         {error && <p className="ld-hint ld-hint--error">{error}</p>}
+        {trashed && <TrashedNotice trashed={trashed} onUndo={onUndo} onDismiss={onDismiss} />}
       </div>
     </Screen>
   );

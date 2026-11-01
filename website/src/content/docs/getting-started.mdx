@@ -70,7 +70,8 @@ Localidraw listens on `127.0.0.1`, so nothing else on your network can reach it.
 something you turn on, by name: see [Self-hosting](/self-hosting/).
 
 It only touches `.excalidraw` files inside the folder you gave it, outside dot-folders and `node_modules`, and the
-folder's `library.excalidrawlib` if you made one. It creates and saves canvases; it never deletes or renames anything. Do that in your shell, your file manager or git.
+folder's `library.excalidrawlib` if you made one. It creates, saves, renames and moves canvases, never over another file, and never deletes one: deleting from the
+sidebar moves the file into `.localidraw/trash/` in the folder.
 
 ## Next
 

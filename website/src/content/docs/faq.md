@@ -42,8 +42,10 @@ a big file, and the whole file is written on every save, so keep that in mind fo
 
 ## Does it delete or rename files?
 
-No. It creates canvases (New canvas) and saves them, and that's all. Rename, move and delete canvases in your shell,
-file manager or git; the sidebar follows.
+It renames and moves canvases when you ask it to, from a canvas's menu in the sidebar, and never over another file.
+It never deletes one: **Delete** moves the file into `.localidraw/trash/` in the folder, where it stays until you
+remove it yourself. See [The Canvases sidebar](/canvases/#rename-move-and-delete). Renaming, moving and deleting in
+your shell, file manager or git works too; the sidebar follows.
 
 ## Is it related to the other projects called Localidraw?
 

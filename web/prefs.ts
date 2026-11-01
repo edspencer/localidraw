@@ -25,6 +25,12 @@ export const prefs = {
   setLibrary: (items: unknown) => write("library", items),
   // Open on the Canvases tab the first time.
   openSidebar: () => read<AppState["openSidebar"]>("openSidebar", { name: "default", tab: "canvases" }),
+  /** A canvas renamed or moved keeps its viewport. */
+  moveViewport(from: string, to: string) {
+    const view = read<Viewport | null>(`viewport:${from}`, null);
+    if (view) write(`viewport:${to}`, view);
+    localStorage.removeItem(`localidraw:viewport:${from}`);
+  },
   /** Keeps the viewport per canvas, and the theme and sidebar for all of them, as they change. */
   remember(path: string, s: AppState) {
     const now = JSON.stringify([path, s.scrollX, s.scrollY, s.zoom.value, s.theme, s.openSidebar]);

@@ -66,7 +66,8 @@ useful the rest of it is. [AGENTS.md](AGENTS.md) has the details.
 - **Nothing written on disk is lost.** A save carries the hash it was based on, and the server refuses it (409) if
   the file moved on; the page merges and saves again. Writes are atomic. Don't add a write path around either.
 - **Only canvases inside the folder.** Every path from the page goes through `resolveInRoot` in `server/files.ts`.
-  The server creates and saves canvases; it never deletes or renames anything.
+  The server creates, saves, renames and moves canvases, never over another file. It never deletes one: a delete
+  from the sidebar is a move into `.localidraw/trash/`.
 - **Localhost unless you host it, and then only by name.** The server binds 127.0.0.1 by default. A `--host` beyond
   loopback refuses to start without `--allowed-host`, and every request's `Host` and `Origin` must be loopback or an
   allowed host (`server/security.ts`). It has no login; when hosted, authentication is the reverse proxy's job.
