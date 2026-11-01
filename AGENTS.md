@@ -72,8 +72,8 @@ its body says how each of these went.
    requests leave the page, with the network off) and that text measures the same (an agent's narrow label still
    shows in full). `npm run smoke:pack` holds the package to its size budget; if a new font set or chunk needs more,
    raise the budget in that PR and say why.
-7. **The Library.** A `library.excalidrawlib` from 0.18 still loads, and a save (`serializeLibraryAsJSON`) still writes `version: 2` and `libraryItems`,
-   which older Excalidraws read.
+7. **The Library.** A `library.excalidrawlib` from 0.18 still loads, and a save (`serializeLibraryAsJSON`) still
+   writes `version: 2` and `libraryItems`, which older Excalidraws read.
 8. **The docs.** This file's pin bullet, the README, the docs site's FAQ, and a changeset (a minor, at least: files
    saved after it may need a newer extension).
 
