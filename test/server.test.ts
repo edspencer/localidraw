@@ -94,14 +94,16 @@ test("only localhost pages may call it", async () => {
 test("a change on disk is announced to the page", async () => {
   const { port } = new URL(app.url);
   const events: any[] = [];
+  const isThisWrite = (e: any) => e.type === "changed" && e.path === "team/alpha/a.excalidraw" && e.hash === contentHash(scene(5));
   const done = new Promise<void>((ok, fail) => {
     let poke: NodeJS.Timeout | undefined;
     const req = request({ host: "127.0.0.1", port, path: "/api/events", headers: { host: `localhost:${port}` } }, (res) => {
       res.setEncoding("utf8");
       res.on("data", (chunk: string) => {
         for (const line of chunk.split("\n")) if (line.startsWith("data: ")) events.push(JSON.parse(line.slice(6)));
-        // Earlier tests' saves can still be announced; wait for this file's.
-        if (events.some((e) => e.type === "changed" && e.path === "team/alpha/a.excalidraw")) { clearInterval(poke); req.destroy(); ok(); }
+        // Earlier tests' saves can still be announced (FSEvents on macOS delivers late), even for this file and with
+        // its earlier content; wait for this write's.
+        if (events.some(isThisWrite)) { clearInterval(poke); req.destroy(); ok(); }
       });
     });
     req.end();
@@ -113,6 +115,5 @@ test("a change on disk is announced to the page", async () => {
     }, 300);
   });
   await done;
-  const changed = events.find((e) => e.type === "changed" && e.path === "team/alpha/a.excalidraw");
-  assert.equal(changed.hash, contentHash(scene(5)));
+  assert.ok(events.some(isThisWrite));
 });

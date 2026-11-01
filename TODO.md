@@ -73,7 +73,10 @@ be exposed. Needed:
 - [ ] **Excalidraw upgrades.** It's pinned at 0.18.1, the version the VS Code extension uses, so files round-trip.
   Before moving to a newer Excalidraw, check that the extension still opens what we save. React stays at 18 until
   Excalidraw's bundled Radix packages accept 19.
-- [ ] **Windows**: untested (paths, recursive `fs.watch`, `explorer` for `--open`).
+- [ ] **Windows**: CI runs it (Node 24) as a best-effort leg that doesn't block. On the first run, typecheck, the
+  tests and the build passed; `smoke:pack` failed at once (`spawnSync npm ENOENT`: `scripts/smoke-pack.mjs` runs
+  `npm` and `mkdir -p` without a shell, and on Windows npm is `npm.cmd`). Still untested beyond that: paths in the
+  page, the recursive `fs.watch` in real use, `explorer` for `--open`. Then make the leg blocking.
 - [ ] **Big folders on Linux**: Node's recursive `fs.watch` there walks the whole tree, `node_modules` included (it's
   only skipped when events arrive). Watching just the folders that hold canvases would be cheaper.
 - [ ] **Other formats?** `.excalidraw.svg` and `.excalidraw.png` (a scene embedded in an image, as the VS Code
