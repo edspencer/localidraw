@@ -2,7 +2,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { existsSync, readdirSync, readFileSync, statSync, watch, type Dirent, type FSWatcher } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
-import { contentHash, EMPTY_SCENE, listProjects, relativePath, resolveInRoot, SKIPPED_DIRS, writeAtomic } from "./files.ts";
+import { contentHash, EMPTY_SCENE, listProjects, parseCanvas, relativePath, resolveInRoot, SKIPPED_DIRS, writeAtomic } from "./files.ts";
 import { localOnly } from "./security.ts";
 
 export type Options = { root: string; port: number; webDir: string };
@@ -101,9 +101,10 @@ function watchCanvases(root: string, send: (event: object) => void): { close: ()
       if (!existsSync(abs)) return send({ type: "projects" });
       const content = readFileSync(abs, "utf8");
       try {
-        JSON.parse(content);
+        parseCanvas(content);
       } catch {
-        return; // caught mid-write by a tool that doesn't write atomically; its next event follows
+        // Caught mid-write by a tool that doesn't write atomically (its next event follows), or not a scene at all.
+        return send({ type: "projects" });
       }
       send({ type: "changed", path: rel, hash: contentHash(content) });
       send({ type: "projects" });
@@ -136,18 +137,23 @@ export function startServer({ root, port, webDir }: Options): Promise<Running> {
       if (path === "/api/canvas") {
         const abs = resolveInRoot(root, url.searchParams.get("path"), "file");
         if (!abs) return json(res, 400, { error: "That isn't a .excalidraw path inside the folder." });
+        // 422: the file is there, but it isn't a scene to open or merge.
+        const loaded = (content: string, status: number) => {
+          try {
+            return json(res, status, { hash: contentHash(content), scene: parseCanvas(content) });
+          } catch (err) {
+            return json(res, 422, { error: (err as Error).message });
+          }
+        };
         if (req.method === "GET") {
-          if (!existsSync(abs)) return json(res, 404, { error: "No such canvas." });
-          const content = readFileSync(abs, "utf8");
-          return json(res, 200, { hash: contentHash(content), scene: JSON.parse(content) });
+          if (!existsSync(abs)) return json(res, 404, { error: "There's no canvas at that path." });
+          return loaded(readFileSync(abs, "utf8"), 200);
         }
         if (req.method === "PUT") {
           // The page says which version it edited (x-base-hash). If the file has moved on since, it gets the new
           // version back (409) and merges before saving again, so nothing written on disk is ever lost.
           const current = existsSync(abs) ? readFileSync(abs, "utf8") : undefined;
-          if (current !== undefined && req.headers["x-base-hash"] !== contentHash(current)) {
-            return json(res, 409, { hash: contentHash(current), scene: JSON.parse(current) });
-          }
+          if (current !== undefined && req.headers["x-base-hash"] !== contentHash(current)) return loaded(current, 409);
           const content = await readBody(req);
           JSON.parse(content);
           writeAtomic(abs, content.endsWith("\n") ? content : `${content}\n`);

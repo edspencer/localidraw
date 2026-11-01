@@ -19,6 +19,24 @@ export const EMPTY_SCENE = {
   files: {},
 };
 
+/**
+ * A canvas file's scene. An empty file is an empty canvas, so `touch plan.excalidraw` makes one. Anything else
+ * that isn't a scene (half-written JSON, or JSON of another kind) throws, so the page won't open it and draw over it.
+ */
+export function parseCanvas(content: string): { elements: unknown[] } {
+  if (!content.trim()) return structuredClone(EMPTY_SCENE);
+  let scene: any;
+  try {
+    scene = JSON.parse(content);
+  } catch (err) {
+    throw new Error(`It isn't valid JSON: ${(err as Error).message}.`);
+  }
+  if (!Array.isArray(scene?.elements)) {
+    throw new Error("It's JSON, but not an Excalidraw scene.");
+  }
+  return scene;
+}
+
 export const contentHash = (content: string) => createHash("sha256").update(content).digest("hex").slice(0, 16);
 
 const toPosix = (p: string) => p.split(sep).join("/");
