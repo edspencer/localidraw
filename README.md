@@ -19,7 +19,8 @@ machine. There's no export step and no cloud copy: what you draw is saved straig
 
 - **Projects and canvases.** Every folder under the one you start it in that holds `.excalidraw` files is a project,
   and each file is a canvas. They're listed in a **Canvases** tab in Excalidraw's own sidebar, next to the Library,
-  with a filter and **New canvas**. One canvas per diagram, rather than one endless board.
+  with a filter and **New canvas**, and each canvas can be renamed, moved or deleted from there (a delete goes to a
+  trash folder, and can be undone). One canvas per diagram, rather than one endless board.
 - **Saved as you draw.** Each canvas is written back to its file about a second after you stop. Opening a canvas, or
   moving around it, never writes it, so browsing leaves `git status` clean.
 - **Draw alongside your coding agent.** When something else changes a file (an agent editing the JSON, a

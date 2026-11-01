@@ -1,6 +1,6 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { request, type IncomingHttpHeaders } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -359,4 +359,55 @@ test("a change to the Library on disk is announced, by file events and by pollin
     await polled.close();
     unlinkSync(file);
   }
+});
+
+test("move renames a canvas, into new folders too, and never over another", async () => {
+  writeFileSync(join(root, "mv-a.excalidraw"), scene(1));
+  writeFileSync(join(root, "mv-b.excalidraw"), scene(2));
+  const moved = await call("POST", "/api/canvases/move", { body: JSON.stringify({ from: "mv-a.excalidraw", to: "moved/here/renamed" }) });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.json.path, "moved/here/renamed.excalidraw");
+  assert.equal(existsSync(join(root, "mv-a.excalidraw")), false);
+  assert.equal(readFileSync(join(root, "moved/here/renamed.excalidraw"), "utf8"), scene(1));
+
+  const clash = await call("POST", "/api/canvases/move", { body: JSON.stringify({ from: "mv-b.excalidraw", to: "moved/here/renamed.excalidraw" }) });
+  assert.equal(clash.status, 409);
+  assert.equal(readFileSync(join(root, "moved/here/renamed.excalidraw"), "utf8"), scene(1), "the one there is untouched");
+  assert.equal(readFileSync(join(root, "mv-b.excalidraw"), "utf8"), scene(2), "and so is the one that would have moved");
+
+  for (const [from, to] of [["mv-b.excalidraw", "../out"], ["mv-b.excalidraw", ".hidden/x"], ["mv-b.excalidraw", "node_modules/x"], ["../x.excalidraw", "y"], ["team/notes.md", "y"]]) {
+    assert.equal((await call("POST", "/api/canvases/move", { body: JSON.stringify({ from, to }) })).status, 400, `${from} → ${to}`);
+  }
+  assert.equal((await call("POST", "/api/canvases/move", { body: JSON.stringify({ from: "nope.excalidraw", to: "y" }) })).status, 404);
+
+  // Another name for the same file (a hard link) is still a name that's taken: both stay.
+  linkSync(join(root, "mv-b.excalidraw"), join(root, "mv-c.excalidraw"));
+  assert.equal((await call("POST", "/api/canvases/move", { body: JSON.stringify({ from: "mv-b.excalidraw", to: "mv-c" }) })).status, 409);
+  assert.equal(existsSync(join(root, "mv-b.excalidraw")) && existsSync(join(root, "mv-c.excalidraw")), true);
+});
+
+test("delete moves a canvas into .localidraw/trash, and restore brings it back, never over another", async () => {
+  writeFileSync(join(root, "doomed.excalidraw"), scene(3));
+  const trashed = await call("POST", "/api/canvases/trash", { body: JSON.stringify({ path: "doomed.excalidraw" }) });
+  assert.equal(trashed.status, 200);
+  assert.match(trashed.json.trashed, /^\.localidraw\/trash\/\d{4}-\d\d-\d\dT[\d-]+Z-doomed\.excalidraw$/);
+  assert.equal(existsSync(join(root, "doomed.excalidraw")), false);
+  assert.equal(readFileSync(join(root, trashed.json.trashed), "utf8"), scene(3));
+  assert.ok(!listProjects(root).some((p) => p.dir.startsWith(".localidraw")), "the trash isn't a project");
+
+  // Another canvas has taken the name meanwhile: restoring refuses, and both stay as they are.
+  writeFileSync(join(root, "doomed.excalidraw"), scene(1));
+  const clash = await call("POST", "/api/canvases/restore", { body: JSON.stringify({ trashed: trashed.json.trashed, path: "doomed.excalidraw" }) });
+  assert.equal(clash.status, 409);
+  rmSync(join(root, "doomed.excalidraw"));
+  const back = await call("POST", "/api/canvases/restore", { body: JSON.stringify({ trashed: trashed.json.trashed, path: "doomed.excalidraw" }) });
+  assert.equal(back.status, 200);
+  assert.equal(readFileSync(join(root, "doomed.excalidraw"), "utf8"), scene(3));
+
+  // Only a canvas in the trash comes out of it.
+  for (const t of [".localidraw/trash/../../top.excalidraw", ".localidraw/trash/x/y.excalidraw", "top.excalidraw", ".localidraw/trash/notes.md", ".git/hidden.excalidraw"]) {
+    assert.equal((await call("POST", "/api/canvases/restore", { body: JSON.stringify({ trashed: t, path: "r.excalidraw" }) })).status, 400, t);
+  }
+  assert.equal((await call("POST", "/api/canvases/trash", { body: JSON.stringify({ path: "../x.excalidraw" }) })).status, 400);
+  assert.equal((await call("POST", "/api/canvases/trash", { body: JSON.stringify({ path: "gone.excalidraw" }) })).status, 404);
 });

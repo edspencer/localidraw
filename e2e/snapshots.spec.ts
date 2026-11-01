@@ -56,6 +56,23 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.locator(".layer-ui__wrapper__footer")).toHaveScreenshot(`footer-notice-${theme}.png`, chrome);
     });
 
+    test("a canvas's menu, delete's confirm, and the notice after a delete", async ({ page, open }) => {
+      await open("plan.excalidraw");
+      await settled(page);
+      const sidebar = page.locator(".excalidraw .sidebar");
+      await page.locator(".ld-canvas", { hasText: "notes" }).hover();
+      await page.getByRole("button", { name: "More for notes", exact: true }).click();
+      await expect(page.getByRole("menuitem", { name: "Rename or move" })).toBeFocused();
+      await expect(sidebar).toHaveScreenshot(`canvas-menu-${theme}.png`, chrome);
+      await page.getByRole("menuitem", { name: "Delete" }).click();
+      await page.mouse.move(600, 400);
+      await expect(sidebar).toHaveScreenshot(`delete-confirm-${theme}.png`, chrome);
+      await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+      await expect(page.locator(".ld-trashed")).toBeVisible();
+      await page.mouse.move(600, 400);
+      await expect(sidebar).toHaveScreenshot(`deleted-notice-${theme}.png`, chrome);
+    });
+
     test.describe("an empty folder", () => {
       test.use({ folderName: null });
       test("offers to make the first canvas", async ({ page, open }) => {

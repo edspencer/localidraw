@@ -99,9 +99,18 @@ type Props = {
    * when the open one may have changed unannounced (the server was away).
    */
   onDiskChange: (handler: (path: string | null, hash: string | null) => void) => void;
+  /**
+   * Called with what the page can ask of the canvases: `release` waits until a canvas's saves have all landed, and
+   * `follow` points a canvas at the path it was renamed or moved to, keeping it on screen as it is (and its undo).
+   */
+  control: (c: Control) => void;
 };
 
-export function CanvasView({ path, sidebar, onDiskChange }: Props) {
+export type Control = { release: (path: string) => Promise<void>; follow: (from: string, to: string) => void };
+
+const RELEASE_TIMEOUT_MS = 5000;
+
+export function CanvasView({ path, sidebar, onDiskChange, control }: Props) {
   // The scene Excalidraw mounts with. Later canvases are swapped into the same Excalidraw.
   const [initial, setInitial] = useState<any>(null);
   const [status, setStatus] = useState("");
@@ -263,6 +272,7 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
   useEffect(() => {
     let live = true;
     const load = () => {
+      if (current.current?.path === path) return; // followed here by a rename: it's on screen already
       if (leaving.current.get(path)?.left) return show(path, null); // left a moment ago: picked up as it was
       getCanvas(path).then((loaded) => {
         if (live) show(path, loaded);
@@ -290,6 +300,36 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
     });
     return () => { live = false; };
   }, [path]);
+
+  // Before a canvas is renamed, moved or deleted, whatever was drawn on it is saved first, so it goes with the file
+  // and no save lands at the old path afterwards.
+  control({
+    release: async (p) => {
+      const until = Date.now() + RELEASE_TIMEOUT_MS;
+      let checked = false;
+      for (;;) {
+        const s = current.current?.path === p ? current.current : leaving.current.get(p);
+        if (!s) return;
+        if (!checked || s.timer !== undefined) {
+          checked = true;
+          clearTimeout(s.timer);
+          s.timer = undefined;
+          void save(s);
+        }
+        if (!s.saving && !s.again && s.timer === undefined && !leaving.current.has(p)) return;
+        if (Date.now() > until) throw new Error("It couldn't be saved first, so it was left as it is.");
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    },
+    follow: (from, to) => {
+      const s = current.current;
+      if (s?.path === from) {
+        s.path = to;
+        setShown(to);
+        if (api.current) expose(api.current);
+      }
+    },
+  });
 
   // ⌘S saves the open canvas at once; leaving the page (or this view) saves it too.
   useEffect(() => {

@@ -13,9 +13,12 @@ For agents (and people) developing Localidraw itself.
   with the current file if it moved on, and the page merges (`mergeScenes`) before saving again. Writes go through
   `writeAtomic` (a temporary file, then a rename). Don't add a write path around either.
 - **Only canvases inside the folder.** Every path from the page goes through `resolveInRoot` in `server/files.ts`:
-  inside the root, not in a dot-folder or `node_modules`, and a `.excalidraw` file. The server creates and saves
-  canvases (and saves `<root>/library.excalidrawlib`, a fixed path, when it exists); it never deletes or renames
-  anything. Renames and deletes are the user's, in their shell or git.
+  inside the root, not in a dot-folder or `node_modules`, and a `.excalidraw` file. The server creates, saves, renames
+  and moves canvases (and saves `<root>/library.excalidrawlib`, a fixed path, when it exists). A rename or move never
+  replaces a file (`renameNoReplace`: a hard link, then removing the old name). **It never unlinks a canvas:** delete
+  is a move into `<root>/.localidraw/trash/<timestamp>-<name>` (`moveToTrash`), which the sidebar can undo, and a
+  canvas comes back out of the trash only through `resolveInTrash`. Before a canvas is renamed or deleted, the page
+  saves it (`release` in `web/CanvasView.tsx`), so nothing lands at the old path afterwards.
 - **Localhost by default; hosting is opt-in, and never without allowed hosts.** The server binds 127.0.0.1 unless
   `--host` says otherwise, and `startServer` and the CLI both refuse a non-loopback `--host` without at least one
   `--allowed-host`. Every request goes through `guard` in `server/security.ts`: the `Host` must be loopback or an

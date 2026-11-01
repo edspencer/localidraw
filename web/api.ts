@@ -12,11 +12,12 @@ async function reply<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+const post = <T,>(url: string, body: unknown) =>
+  fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => reply<T>(r));
+
 export const getProjects = () => fetch("/api/projects").then((r) => reply<{ root: string; projects: Project[] }>(r));
 export const getCanvas = (path: string) => fetch(canvasUrl(path)).then((r) => reply<Loaded>(r));
-export const createCanvas = (path: string) =>
-  fetch("/api/canvases", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) })
-    .then((r) => reply<{ path: string }>(r));
+export const createCanvas = (path: string) => post<{ path: string }>("/api/canvases", { path });
 
 /** Saves over the version with `baseHash`. A 409 means the file moved on: its new version comes back to merge. */
 export async function putCanvas(path: string, baseHash: string, content: string):
@@ -38,3 +39,10 @@ export async function putLibrary(baseHash: string, content: string):
   if (res.status === 404) return { ok: false, gone: true };
   return { ok: true, ...(await reply<{ hash: string }>(res)) };
 }
+
+/** Renames or moves a canvas; never over another. */
+export const moveCanvas = (from: string, to: string) => post<{ path: string }>("/api/canvases/move", { from, to });
+/** Moves a canvas into the folder's trash (.localidraw/trash), and says where it went. */
+export const trashCanvas = (path: string) => post<{ trashed: string }>("/api/canvases/trash", { path });
+/** Puts a canvas from the trash back at `path`; never over another. */
+export const restoreCanvas = (trashed: string, path: string) => post<{ path: string }>("/api/canvases/restore", { trashed, path });

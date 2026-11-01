@@ -1,8 +1,8 @@
 // The canvases under the root folder: finding them, and reading and writing them safely.
 // A project is a folder that holds at least one canvas; a canvas is a .excalidraw file.
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync, linkSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export type Canvas = { path: string; name: string };
 export type Project = { dir: string; canvases: Canvas[] };
@@ -111,3 +111,58 @@ export function writeAtomic(abs: string, content: string) {
 }
 
 export const relativePath = (root: string, abs: string) => toPosix(relative(root, abs));
+
+/** Where a deleted canvas goes, under the root: a dot-folder, so it's never listed or watched. */
+export const TRASH_DIR = ".localidraw/trash";
+
+/** The error for a name that's taken: a rename never replaces a file. */
+const taken = () => Object.assign(new Error("There's already a file there."), { code: "EEXIST" });
+
+/**
+ * Renames `from` to `to` (making its folders), and never over an existing file. A hard link refuses an existing name
+ * atomically, then the old name is removed: the file itself is never deleted. Where links aren't supported (some
+ * network and FAT file systems), and for a change of case only on a case-insensitive disk, it checks, then renames.
+ */
+export function renameNoReplace(from: string, to: string) {
+  mkdirSync(dirname(to), { recursive: true });
+  if (existsSync(to)) {
+    const a = statSync(from), b = statSync(to);
+    // The same file under a name that differs only in case (a case-insensitive disk): rename it. Anything else there,
+    // a hard link of it included, is another name that's taken.
+    if (a.ino !== b.ino || a.dev !== b.dev || from.toLowerCase() !== to.toLowerCase()) throw taken();
+    return renameSync(from, to);
+  }
+  try {
+    linkSync(from, to);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") throw taken();
+    if (existsSync(to)) throw taken();
+    return renameSync(from, to);
+  }
+  unlinkSync(from);
+}
+
+/** Moves a canvas into the trash as `<timestamp>-<name>`, and returns its root-relative path there. */
+export function moveToTrash(root: string, abs: string): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  for (let n = 1; ; n++) {
+    const name = `${stamp}${n > 1 ? `-${n}` : ""}-${basename(abs)}`;
+    try {
+      renameNoReplace(abs, join(root, TRASH_DIR, name));
+      return `${TRASH_DIR}/${name}`;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+  }
+}
+
+/**
+ * The absolute path of a canvas in the trash, or undefined: `rel` must be `.localidraw/trash/<name>.excalidraw`, the
+ * way moveToTrash names them, with nothing else in the path. (resolveInRoot refuses dot-folders, so the trash has this.)
+ */
+export function resolveInTrash(root: string, rel: unknown): string | undefined {
+  if (typeof rel !== "string" || !rel.startsWith(`${TRASH_DIR}/`)) return undefined;
+  const name = rel.slice(TRASH_DIR.length + 1);
+  if (!name || name.includes("/") || name.includes("\\") || name.includes("\0") || name.startsWith(".") || extname(name) !== ".excalidraw") return undefined;
+  return join(root, TRASH_DIR, name);
+}

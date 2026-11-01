@@ -1,6 +1,6 @@
 ---
 title: The Canvases sidebar
-description: Projects, canvases, the filter and New canvas, in a tab of Excalidraw's own sidebar.
+description: Projects, canvases, the filter, New canvas, and renaming, moving and deleting, in a tab of Excalidraw's own sidebar.
 ---
 
 Localidraw adds one thing to Excalidraw's screen: a **Canvases** tab in its sidebar, beside the Library. Open it from
@@ -47,8 +47,24 @@ typing replaces just the name. The **+** beside a project's header does the same
 
 The new file is an empty scene, written at once, so it's in `git status` straight away.
 
-Renaming, moving and deleting canvases aren't in the sidebar yet: do them in your shell, file manager or git, and the
-list follows.
+## Rename, move and delete
+
+Each canvas has a menu: the **⋯** that shows when you point at its row, or a right-click on the row.
+
+- **Rename or move** turns the row into a field with the canvas's path, the name selected. Type a new name, or change
+  the folder to move it (`archive/2026/plan`); folders are made as needed. **Enter** renames it; **Esc** cancels.
+  - It never replaces another canvas: if the name is taken, it says so under the field and nothing changes.
+  - If it's the open canvas, what you drew is saved first, then the file is renamed and the page follows it (the URL
+    too). Its view comes along.
+- **Delete** asks first, in place of the row. It doesn't delete anything: the file is moved into the folder's trash,
+  `.localidraw/trash/`, as `<date and time>-<name>.excalidraw`. A notice at the top of the tab says so, with
+  **Undo**, which puts it back where it was (unless another canvas has taken its place since).
+  - If it's the open canvas, it's saved first, and another canvas opens: the first in the same project, or else the
+    first there is.
+  - The trash is a dot-folder, so it's never listed. Empty it yourself when you like (`rm -r .localidraw/trash`), and
+    consider adding `.localidraw/` to your `.gitignore`.
+
+Renaming, moving and deleting in your shell, file manager or git works as before: the list follows.
 
 ## The status, in the footer
 

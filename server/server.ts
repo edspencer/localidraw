@@ -2,7 +2,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { existsSync, readdirSync, readFileSync, statSync, watch, type Dirent, type FSWatcher } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { contentHash, EMPTY_SCENE, LIBRARY_FILE, listProjects, parseCanvas, parseLibrary, relativePath, resolveInRoot, SKIPPED_DIRS, writeAtomic } from "./files.ts";
+import { contentHash, EMPTY_SCENE, LIBRARY_FILE, listProjects, moveToTrash, parseCanvas, parseLibrary, relativePath, renameNoReplace, resolveInRoot, resolveInTrash, SKIPPED_DIRS, writeAtomic } from "./files.ts";
 import { pkg } from "./package.ts";
 import { guard, isLoopbackAddress } from "./security.ts";
 import { send, staticFiles } from "./static.ts";
@@ -41,6 +41,10 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on("error", fail);
   });
 }
+
+/** A canvas path as the page may give it, with or without the .excalidraw. */
+const withExtension = (wanted: unknown) =>
+  typeof wanted === "string" && !wanted.trim().endsWith(".excalidraw") ? `${wanted.trim()}.excalidraw` : typeof wanted === "string" ? wanted.trim() : wanted;
 
 const skipped = (rel: string) => rel.split("/").some((p) => p.startsWith(".") || SKIPPED_DIRS.has(p));
 
@@ -248,12 +252,47 @@ export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHo
       }
       if (req.method === "POST" && path === "/api/canvases") {
         const { path: wanted } = JSON.parse(await readBody(req));
-        const withExt = typeof wanted === "string" && !wanted.endsWith(".excalidraw") ? `${wanted.trim()}.excalidraw` : wanted;
-        const abs = resolveInRoot(root, withExt, "file");
+        const abs = resolveInRoot(root, withExtension(wanted), "file");
         if (!abs) return json(req, res, 400, { error: "That isn't a path inside the folder." });
         if (existsSync(abs)) return json(req, res, 409, { error: "There's already a canvas there." });
         writeAtomic(abs, `${JSON.stringify(EMPTY_SCENE, null, 2)}\n`);
         return json(req, res, 201, { path: relativePath(root, abs) });
+      }
+      // Renaming, moving and deleting from the sidebar. A rename never replaces a file, and a delete is a move into the
+      // trash (.localidraw/trash), never an unlink, so it can be undone.
+      if (req.method === "POST" && path === "/api/canvases/move") {
+        const { from, to } = JSON.parse(await readBody(req));
+        const src = resolveInRoot(root, from, "file"), dest = resolveInRoot(root, withExtension(to), "file");
+        if (!src || !dest) return json(req, res, 400, { error: "That isn't a path inside the folder." });
+        if (!existsSync(src)) return json(req, res, 404, { error: "There's no canvas at that path." });
+        if (src === dest) return json(req, res, 200, { path: relativePath(root, dest) });
+        try {
+          renameNoReplace(src, dest);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === "EEXIST") return json(req, res, 409, { error: "There's already a canvas there." });
+          throw err;
+        }
+        return json(req, res, 200, { path: relativePath(root, dest) });
+      }
+      if (req.method === "POST" && path === "/api/canvases/trash") {
+        const { path: rel } = JSON.parse(await readBody(req));
+        const abs = resolveInRoot(root, rel, "file");
+        if (!abs) return json(req, res, 400, { error: "That isn't a path inside the folder." });
+        if (!existsSync(abs)) return json(req, res, 404, { error: "There's no canvas at that path." });
+        return json(req, res, 200, { trashed: moveToTrash(root, abs) });
+      }
+      if (req.method === "POST" && path === "/api/canvases/restore") {
+        const { trashed, path: rel } = JSON.parse(await readBody(req));
+        const src = resolveInTrash(root, trashed), dest = resolveInRoot(root, rel, "file");
+        if (!src || !dest) return json(req, res, 400, { error: "That isn't a canvas in the trash, or a path inside the folder." });
+        if (!existsSync(src)) return json(req, res, 404, { error: "It isn't in the trash any more." });
+        try {
+          renameNoReplace(src, dest);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === "EEXIST") return json(req, res, 409, { error: "There's a canvas at its old path now." });
+          throw err;
+        }
+        return json(req, res, 200, { path: relativePath(root, dest) });
       }
       return json(req, res, 404, { error: "Not found." });
     } catch (err) {
@@ -276,6 +315,9 @@ export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHo
           watcher.close();
           for (const c of clients) c.end();
           server.close(() => done());
+          // A page's EventSource reconnects at once, and can do it over a kept-alive connection the server still has
+          // open, which would hold close() up for good; so drop every connection rather than wait for them.
+          server.closeAllConnections();
         }),
       });
     });

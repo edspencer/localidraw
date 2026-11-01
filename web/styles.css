@@ -35,6 +35,8 @@ html, body, #root, .ld-app { margin: 0; height: 100%; }
   flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; padding: 0; margin: 0;
   font: 400 0.875rem var(--ui-font); color: var(--ExcTextField--color, var(--color-on-surface));
 }
+/* The field's border shows the focus; Excalidraw's own ring for inputs would draw lines inside it. */
+.excalidraw .ld-field input:focus-visible { box-shadow: none; }
 .excalidraw .ld-field input::placeholder { color: var(--ExcTextField--placeholder, var(--color-border-outline-variant)); }
 
 .excalidraw .ld-hint { margin: 0.375rem 0.25rem 0; font-size: 0.75rem; line-height: 1.35; color: var(--color-gray-50); }
@@ -71,6 +73,56 @@ html, body, #root, .ld-app { margin: 0; height: 100%; }
 .excalidraw .ld-project__header:hover .ld-icon-button,
 .excalidraw .ld-icon-button:focus-visible { opacity: 1; }
 .excalidraw .ld-icon-button:hover { background: var(--button-hover-bg, var(--color-surface-high)); color: var(--color-on-surface); }
+
+/* A canvas: its row, and its ⋯ button, shown on hover (or while its menu is open). */
+.excalidraw .ld-canvas { position: relative; display: flex; align-items: center; margin: 1px 0; }
+.excalidraw .ld-canvas .ld-row { margin: 0; padding-right: 2.25rem; } /* the wrapper's margins collapse, as a row's did */
+.excalidraw .ld-canvas__more { position: absolute; right: 0.25rem; }
+.excalidraw .ld-canvas:hover .ld-canvas__more,
+.excalidraw .ld-canvas--menu .ld-canvas__more { opacity: 1; }
+
+/* Its menu: Excalidraw's dropdown, placed at the button or the pointer. */
+.excalidraw .dropdown-menu.ld-menu { position: fixed; z-index: 20; margin: 0; width: 12rem; }
+.excalidraw .ld-menu .dropdown-menu-container { padding: 0.5rem; border-radius: var(--border-radius-lg); box-shadow: var(--shadow-island); }
+.excalidraw .ld-menu .dropdown-menu-item:focus-visible { outline: none; border-color: var(--color-brand-active); }
+.excalidraw .ld-menu .dropdown-menu-item:hover { background-color: var(--button-hover-bg, var(--color-surface-high)); }
+
+/* Delete's confirm, in place of the row; and the notice after a delete, with its undo. */
+.excalidraw .ld-confirm,
+.excalidraw .ld-trashed {
+  margin: 0.25rem 0; padding: 0.625rem 0.75rem; border-radius: var(--border-radius-lg);
+  background: var(--color-surface-low); border: 1px solid var(--color-gray-20);
+  font-size: 0.875rem; color: var(--color-on-surface);
+}
+.excalidraw.theme--dark .ld-confirm,
+.excalidraw.theme--dark .ld-trashed { border-color: var(--color-gray-85); }
+.excalidraw .ld-confirm__text, .excalidraw .ld-trashed__text { margin: 0; line-height: 1.4; overflow-wrap: anywhere; }
+.excalidraw .ld-confirm__buttons { display: flex; gap: 0.5rem; margin-top: 0.625rem; }
+.excalidraw .ld-button {
+  height: 2rem; padding: 0 0.875rem; border: 1px solid var(--color-gray-20); border-radius: var(--border-radius-md);
+  background: var(--island-bg-color); color: var(--color-on-surface); font: 400 0.875rem var(--ui-font); cursor: pointer;
+}
+.excalidraw.theme--dark .ld-button { border-color: var(--color-gray-80); }
+.excalidraw .ld-button:hover { background: var(--button-hover-bg, var(--color-surface-high)); }
+.excalidraw .ld-button:focus-visible { outline: none; border-color: var(--color-brand-active); }
+.excalidraw .ld-button--danger { border-color: transparent; background: var(--color-danger, #db6965); color: #fff; }
+.excalidraw .ld-button--danger:hover { background: var(--color-danger-darker, #c92a2a); }
+.excalidraw.theme--dark .ld-button--danger { color: #1b1b1f; }
+.excalidraw .ld-trashed { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; padding-right: 0.25rem; }
+.excalidraw .ld-trashed__text { flex: 1; min-width: 0; font-size: 0.8125rem; }
+.excalidraw .ld-trashed code { font-size: 0.75rem; }
+.excalidraw .ld-trashed .ld-hint { flex-basis: 100%; }
+.excalidraw .ld-trashed__action,
+.excalidraw .ld-trashed__close {
+  display: flex; align-items: center; justify-content: center; height: 1.75rem; padding: 0 0.5rem; border: 0;
+  border-radius: var(--border-radius-md); background: transparent; cursor: pointer; font: 600 0.8125rem var(--ui-font);
+}
+.excalidraw .ld-trashed__action { color: var(--color-primary); }
+.excalidraw .ld-trashed__close { width: 1.75rem; padding: 0; color: var(--color-gray-50); }
+.excalidraw .ld-trashed__action:hover,
+.excalidraw .ld-trashed__close:hover { background: var(--button-hover-bg, var(--color-surface-high)); }
+/* On the empty-folder screen, under its button. */
+.excalidraw .ld-screen__island .ld-trashed { margin-top: 1rem; }
 
 .excalidraw .ld-empty { margin: 1rem 0.25rem; font-size: 0.875rem; color: var(--color-gray-50); }
 
