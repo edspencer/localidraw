@@ -1,6 +1,6 @@
 ---
 title: Self-hosting
-description: Running Localidraw on a server for a folder of shared canvases, behind a reverse proxy that does the login.
+description: Running Localidraw on a server, in Docker or with Node, for a folder of shared canvases, behind a reverse proxy that does the login.
 ---
 
 Localidraw is built for one person on their own machine, and that's what it does unless you ask for more. It can also
@@ -11,6 +11,62 @@ Anyone who can reach a hosted Localidraw can read and change every canvas in its
 reverse proxy's job: forward auth to your SSO, basic auth, or a private network such as Tailscale. Publish
 Localidraw's own port only where the proxy can reach it, never to the internet.
 :::
+
+## With Docker
+
+The image is `ghcr.io/edspencer/localidraw`, for amd64 and arm64. It's tagged with each version and `latest`, and
+carries an SBOM and build provenance. It runs as the `node` user (uid 1000), with the canvases at `/canvases`, and a
+health check on `/api/health`. It listens on every address inside the container, so it **won't start without
+`LOCALIDRAW_ALLOWED_HOSTS`**:
+
+```sh
+docker run -d --name localidraw --restart unless-stopped \
+  -p 127.0.0.1:3729:3729 \
+  -v /srv/canvases:/canvases \
+  -e LOCALIDRAW_ALLOWED_HOSTS=draw.example.com \
+  ghcr.io/edspencer/localidraw
+```
+
+- **Publish the port on loopback**, as above, when the proxy is on the same machine, or on the one address the proxy
+  reaches (`-p 192.168.1.20:3729:3729`). Never use a bare `-p 3729:3729`, which opens it to every network the machine
+  is on.
+- **The folder must be writable by uid 1000**, or run the container as its owner with `--user $(id -u):$(id -g)`.
+- Add `localhost` to `LOCALIDRAW_ALLOWED_HOSTS` (`localhost,draw.example.com`) to use it at
+  `http://localhost:3729/` on the machine itself.
+- Options go after the folder: `ghcr.io/edspencer/localidraw /canvases --poll`. Or use the variables below.
+
+To check that an image is the one this repository's release workflow built:
+
+```sh
+gh attestation verify oci://ghcr.io/edspencer/localidraw:latest -R edspencer/localidraw
+```
+
+### Docker Compose
+
+The repository's [`compose.yaml`](https://github.com/edspencer/localidraw/blob/main/compose.yaml) runs it on
+`./canvases`, published on loopback, answering to `localhost`. It also has commented examples for a NAS folder over
+NFS and for a reverse proxy. The essentials:
+
+```yaml
+services:
+  localidraw:
+    image: ghcr.io/edspencer/localidraw:latest
+    ports:
+      - "127.0.0.1:3729:3729"
+    user: "1000:1000"
+    environment:
+      LOCALIDRAW_ALLOWED_HOSTS: draw.example.com
+      # LOCALIDRAW_POLL: "2000"   # for a folder on NFS or SMB
+    volumes:
+      - /srv/canvases:/canvases
+    restart: unless-stopped
+```
+
+## Without Docker
+
+Localidraw is one Node process with no runtime dependencies, so a service file is enough:
+`npx localidraw@latest /srv/canvases --allowed-host draw.example.com` (Node 22 or later). The rest of this page applies
+to either.
 
 ## Listening beyond localhost
 
@@ -25,7 +81,8 @@ localidraw /srv/canvases --host 0.0.0.0 --allowed-host draw.example.com
 - **`--allowed-host <name>`** is a host name Localidraw answers to besides localhost: the name your browser (or your
   proxy) uses to reach it, without `https://` or a port. Repeat it for more names.
 
-A `--host` that isn't loopback **won't start without an allowed host**:
+A `--host` that isn't loopback **won't start without an allowed host** (the Docker image listens on `0.0.0.0`, so it
+needs one too):
 
 ```
 localidraw: refusing to listen on 0.0.0.0 without an allowed host name.

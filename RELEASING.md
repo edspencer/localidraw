@@ -1,7 +1,8 @@
 # Releasing Localidraw
 
-Localidraw is published to npm as [`localidraw`](https://www.npmjs.com/package/localidraw). Every release comes from
-GitHub Actions (`.github/workflows/release.yml`), with npm trusted publishing and a provenance attestation. Nobody
+Localidraw is published to npm as [`localidraw`](https://www.npmjs.com/package/localidraw), and as a Docker image,
+[`ghcr.io/edspencer/localidraw`](https://github.com/edspencer/localidraw/pkgs/container/localidraw). Every release
+comes from GitHub Actions (`.github/workflows/release.yml`), with npm trusted publishing and a provenance attestation. Nobody
 publishes a release from a laptop, and no npm token exists. (The one exception is the 0.0.1 placeholder, below.)
 
 ## How a release happens
@@ -19,6 +20,8 @@ publishes a release from a laptop, and no npm token exists. (The one exception i
      on the registry;
    - `github-release`: create the tag `v<version>` at the merge commit, and a GitHub Release whose notes are that
      version's `CHANGELOG.md` section.
+
+   - `build-image` and `publish-image`, alongside the npm jobs: the Docker image (below).
 
 So you decide *when* to release by merging the version PR, and *what* the version is by the changesets. Nobody edits
 `version` or `CHANGELOG.md` by hand. `workflow_dispatch` (Actions → Release → Run workflow) re-runs the pipeline for
@@ -38,6 +41,37 @@ consequences:
 - **You can't ship unverified regardless.** CI on the push to `main` does run (a person merged it), and `verify-ci`
   blocks the publish unless that run concluded `success` on that exact commit. If it failed for a reason you judge
   unrelated (a flake), re-run CI until it's green, then re-run the Release workflow.
+
+## The Docker image
+
+`build-image` runs on native runners, `ubuntu-latest` for amd64 and `ubuntu-24.04-arm` for arm64, with no emulation.
+Each builds the image, starts it and checks it with `scripts/smoke-image.sh`, which is the same check CI runs on every
+PR (amd64 only). Only then does it push the image by digest. It also makes an SPDX SBOM of its architecture's image
+and attests it next to the image. `publish-image` then merges the two digests with `docker buildx imagetools create`
+into `ghcr.io/edspencer/localidraw:<version>` and `:latest`, and attests build provenance for the multi-arch digest.
+Check a release with:
+
+```sh
+gh attestation verify oci://ghcr.io/edspencer/localidraw:<version> -R edspencer/localidraw
+```
+
+The jobs authenticate to GHCR with the workflow's `GITHUB_TOKEN` (`packages: write`), and sign the attestations
+over OIDC (`id-token: write`, `attestations: write`). There's no registry secret.
+
+**npm doesn't wait for the image, on purpose.** `publish-npm` needs only `verify-ci`, and `github-release` needs
+only `publish-npm`, so a failed image build doesn't hold back the npm package, its tag or its GitHub Release. npm is
+what most people install from, and it's the irreversible step that's been proven to work. The image is newer and has
+more moving parts (two runners, GHCR, Sigstore).
+
+If an image job fails for a passing reason (a runner, the registry), use **"Re-run failed jobs" on that same run**. A
+fresh run of the workflow won't do it: by then `github-release` has tagged `v<version>`, so a new run finds nothing to
+release. If the fix needs a code change, the image ships with the next version. Once a version's image tag exists it
+never moves: `publish-image` leaves an existing `:<version>` alone rather than retag a rebuilt image whose digest
+differs from the one people have pulled.
+
+**The package's visibility.** GHCR makes a new package private. After the first image is pushed, Ed makes it public
+once: the package's settings on GitHub → Change visibility → Public. It can also be linked to this repository there,
+though the `org.opencontainers.image.source` label usually does that by itself.
 
 ## npm auth: trusted publishing
 

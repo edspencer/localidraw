@@ -1,0 +1,23 @@
+# Keep the build context small: node_modules and dist are rebuilt inside the image, and nothing else here is part of
+# the build.
+**/node_modules
+dist
+.git
+.github
+.changeset
+.claude
+.playwright-mcp
+e2e
+test
+test-results
+playwright-report
+website
+brand
+demo
+docs
+tools
+qa
+*.log
+*.tgz
+.DS_Store
+CLAUDE.local.md

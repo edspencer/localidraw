@@ -8,8 +8,16 @@ name: Release
 #      (trusted publishing over OIDC, with provenance: there is no NPM_TOKEN), and `github-release` creates the
 #      v<version> tag and GitHub Release.
 #
+#   3. Alongside the npm publish, `build-image` builds the Docker image on native amd64 and arm64 runners, smoke-tests
+#      each and pushes it by digest, and `publish-image` tags ghcr.io/edspencer/localidraw:<version> and :latest from
+#      them, with an SBOM per architecture and build provenance attested next to the image.
+#
 # Everything happens in one run, so nothing relies on a tag pushed with GITHUB_TOKEN triggering another workflow
 # (GitHub doesn't run workflows for those).
+#
+# The image and npm are independent on purpose: publish-npm doesn't wait for the image jobs, and a failed image build
+# doesn't hold back the npm release (or its tag and GitHub Release). The image is the newer, less-trodden path, and
+# npm is the one people install from; a failed image job is re-run on its own (RELEASING.md).
 
 on:
   push:
@@ -23,6 +31,9 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  IMAGE: ghcr.io/edspencer/localidraw
 
 jobs:
   release:
@@ -186,6 +197,167 @@ jobs:
           done
           echo "::error::localidraw@${VERSION} is published but no provenance attestation appeared" >&2
           exit 1
+
+  # The Docker image, on native runners for each architecture (no QEMU). Each is built into the local image store,
+  # started and checked (scripts/smoke-image.sh) before anything is pushed, then pushed by digest; publish-image
+  # merges the digests into one multi-arch tag. Adapted from BragDoc's and Paddock's release.yml.
+  build-image:
+    name: Build image (${{ matrix.platform }})
+    needs: [release, verify-ci]
+    if: needs.release.outputs.should_release == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write # push by digest, and the SBOM attestation next to it
+      id-token: write # sign the SBOM attestation (Sigstore)
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: localidraw:smoke
+          cache-from: type=gha,scope=image-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
+
+      - name: Start it and check it
+        run: scripts/smoke-image.sh localidraw:smoke "${VERSION}"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Same inputs as the build above, so it's all cache hits.
+      - name: Push by digest
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.title=Localidraw
+            org.opencontainers.image.description=A local Excalidraw for the .excalidraw files in a folder
+            org.opencontainers.image.documentation=https://localidraw.edspencer.net/self-hosting/
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=image-${{ matrix.arch }}
+
+      # One SBOM per architecture, made on its own runner and attested against that architecture's digest: an SBOM
+      # of the multi-arch index would only describe the platform the scanner ran on.
+      - name: SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
+          format: spdx-json
+          output-file: ${{ runner.temp }}/sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/sbom.spdx.json
+          push-to-registry: true
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # One multi-arch tag from the per-arch digests, then its build provenance, pushed to GHCR next to it
+  # (`gh attestation verify oci://ghcr.io/edspencer/localidraw:<version> -R edspencer/localidraw`).
+  publish-image:
+    name: Publish image + attestations
+    needs: [release, build-image]
+    if: needs.release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write # push the merged manifest and the attestation
+      id-token: write # sign the attestation (Sigstore)
+      attestations: write
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # :<version> and :latest. Each file in the digests folder is named by a digest.
+      - name: Tag the multi-arch image
+        id: tag
+        run: |
+          set -euo pipefail
+          # A version's tag never moves: a fresh run for a version that's already out (rather than "Re-run failed
+          # jobs" on the original run) rebuilt the image, and its digest differs from the one people have pulled.
+          if docker buildx imagetools inspect "${IMAGE}:${VERSION}" >/dev/null 2>&1; then
+            echo "${IMAGE}:${VERSION} already exists; leaving it (and :latest) where they are"
+          else
+            refs=""
+            for f in "${RUNNER_TEMP}"/digests/*; do refs="${refs} ${IMAGE}@sha256:$(basename "$f")"; done
+            # shellcheck disable=SC2086 # one reference per word
+            docker buildx imagetools create -t "${IMAGE}:${VERSION}" -t "${IMAGE}:latest" ${refs}
+          fi
+          docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.tag.outputs.digest }}
+          push-to-registry: true
 
   # The tag and the GitHub Release come after npm, so a tag always means a published version.
   github-release:

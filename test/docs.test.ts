@@ -70,3 +70,16 @@ test("every docs page is in the sidebar, and every sidebar entry has a page", ()
     .sort();
   assert.deepEqual(slugs, pages);
 });
+
+test(`the Dockerfile and compose.yaml use ${DEFAULT_PORT}, publish it on loopback, and keep the image's refusal`, () => {
+  const dockerfile = read("Dockerfile");
+  assert.match(dockerfile, new RegExp(`PORT=${DEFAULT_PORT}\\b`));
+  assert.match(dockerfile, new RegExp(`^EXPOSE ${DEFAULT_PORT}$`, "m"));
+  // It listens on every address, so the CLI's refusal without allowed hosts is what keeps it safe.
+  assert.match(dockerfile, /LOCALIDRAW_HOST=0\.0\.0\.0/);
+  const instructions = dockerfile.split("\n").filter((line) => !line.trimStart().startsWith("#")).join("\n");
+  assert.doesNotMatch(instructions, /LOCALIDRAW_ALLOWED_HOSTS/, "the image must not bake in an allowed host");
+  const compose = read("compose.yaml");
+  const ports = [...compose.matchAll(/^\s+- "([^"]+)"$/gm)].map((m) => m[1]);
+  assert.deepEqual(ports, [`127.0.0.1:${DEFAULT_PORT}:${DEFAULT_PORT}`]);
+});

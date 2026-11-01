@@ -12,15 +12,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
   (12 of the 13 MB of fonts), so it works fully offline. `npm run smoke:pack` now fails if the package grows past
   16.5 MB packed or 23 MB unpacked. The lazily loaded chunks (7.7 MB, mostly Mermaid) could still be looked at.
 
-## Hosting (a Docker image)
-
-The server side is done: `--host` and `--allowed-host`, with authentication left to the reverse proxy, JSON-only
-writes, `/api/health`, caching and compression, `--poll` for network mounts, and the limits documented on the docs
-site's Self-hosting page. Left:
-
-- [ ] **The Dockerfile and a compose file**: a volume for the canvases, a non-root user, a health check on
-  `/api/health`, and image jobs in `release.yml`.
-
 ## The editor
 
 - [ ] **Rename, move and delete canvases from the sidebar.** Today that's `git mv`/`git rm` (or Finder), and the
