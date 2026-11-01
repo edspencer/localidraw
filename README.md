@@ -31,6 +31,9 @@ machine. There's no export step and no cloud copy: what you draw is saved straig
 - **Works offline, and only for you.** Fonts and all are in the package. It listens on 127.0.0.1 only, and refuses
   requests from other hosts and sites.
 
+The documentation is at **https://localidraw.edspencer.net**, including
+[how a coding agent should edit a canvas](https://localidraw.edspencer.net/agents/).
+
 ## Options
 
 ```

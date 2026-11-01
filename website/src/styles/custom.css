@@ -1,0 +1,43 @@
+/*
+ * Localidraw docs: a few brand touches on top of Starlight, kept small. The site should feel at home next to
+ * Excalidraw's chrome (docs/AESTHETIC.md): Excalidraw's violet as the one accent, Assistant (its UI font) for text,
+ * flat surfaces, and nothing hand-drawn.
+ */
+
+/* Dark theme (Starlight's default): Excalidraw's dark-mode primary, #a8a5ff. */
+:root {
+	--sl-color-accent-low: #2e2d5c;
+	--sl-color-accent: #a8a5ff;
+	--sl-color-accent-high: #e3e2fe;
+	--sl-font: 'Assistant', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Light theme: --color-primary-darker for links and buttons (#6965db is a little light for small text on white). */
+:root[data-theme='light'] {
+	--sl-color-accent-low: #e3e2fe;
+	--sl-color-accent: #5b57d1;
+	--sl-color-accent-high: #4a47b1;
+}
+
+/* Assistant runs small for its size next to the system fonts Starlight is tuned for. */
+:root {
+	--sl-text-body: 1.0625rem;
+}
+
+/* The hero GIF on the home page: framed like an Excalidraw island. */
+.hero-demo {
+	display: block;
+	width: 100%;
+	height: auto;
+	border-radius: 0.5rem;
+	border: 1px solid var(--sl-color-gray-5);
+	box-shadow: 0 0 0.9px rgb(0 0 0 / 0.17), 0 0 3.1px rgb(0 0 0 / 0.08), 0 7px 14px rgb(0 0 0 / 0.05);
+}
+
+/* Cards: one accent, not Starlight's rotating colours, and Excalidraw's rounded island corners. (Starlight's own card
+   styles are in a cascade layer, so these win.) */
+.card {
+	--sl-card-border: var(--sl-color-accent);
+	--sl-card-bg: var(--sl-color-accent-low);
+	border-radius: 0.5rem;
+}

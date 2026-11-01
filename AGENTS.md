@@ -18,7 +18,7 @@ For agents (and people) developing Localidraw itself.
 - **The server only binds 127.0.0.1** and refuses non-localhost `Host` and `Origin` headers (`server/security.ts`).
   Don't add a way around that (no `--host`).
 - **The default port is one constant**, `DEFAULT_PORT` in `server/port.ts`: 3729, "DRAW" on a phone keypad (not LOCA, 5622, which is Local Review's). The
-  README says it too; change both together.
+  README and the docs site (`website/src/site.mjs`) say it too; change them together (`test/docs.test.ts` checks).
 - **The browser keeps preferences, the files keep drawings.** Viewport, theme and sidebar state live in
   `localStorage` (`web/prefs.ts`), never in a `.excalidraw` file.
 - **Excalidraw is pinned at 0.18.1**, the version the VS Code extension (`pomdtr.excalidraw-editor`) uses, so files
@@ -39,6 +39,9 @@ For agents (and people) developing Localidraw itself.
   writes `web/favicon.svg`). [brand/README.md](brand/README.md) has the rules.
 - `demo/`: a neutral folder of canvases, and `tools/docs-media/`, which remakes it and records the README's GIF
   (`docs/media/hero.gif`) on it.
+- `website/`: the docs site (Astro + Starlight), a separate private package that Cloudflare Pages builds
+  ([website/README.md](website/README.md)). It's the reference documentation: when behaviour, the options or the
+  file rules change, change its pages too. Its sidebar is hand-maintained, and `src/site.mjs` copies `DEFAULT_PORT`.
 - `test/`: `node:test` suites.
 - `e2e/`: Playwright browser tests, and the theme snapshots ([e2e/README.md](e2e/README.md)). They wait on
   `window.localidraw` (`TestHandle` in `web/CanvasView.tsx`), never on sleeps.
@@ -53,6 +56,7 @@ npm run typecheck
 npm run build         # dist/web (esbuild) + dist/server (tsc)
 npm run smoke:pack    # pack, install into a temp prefix, run it, check it serves and fits its size budget
 npm run test:e2e      # the browser tests (npx playwright install chromium, once)
+(cd website && npm install && npm run build && npm run check-links)  # the docs site
 npm run docs:media:hero     # re-record docs/media/hero.gif (tools/docs-media/README.md)
 npm run test:e2e:snapshots  # those plus the theme snapshots, in Docker; -- --update-snapshots remakes them
 ```

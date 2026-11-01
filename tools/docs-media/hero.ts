@@ -1,7 +1,7 @@
 // The README's hero GIF: someone draws on a canvas while a script edits the same file the way a coding agent does, and
 // both changes end up on the canvas and in the file.
 //
-//   npm run docs:media:hero                 build the page, record, encode docs/media/hero.gif
+//   npm run docs:media:hero                 build the page, record, encode docs/media/hero.gif (and the docs site's copy)
 //   npm run docs:media:hero -- --skip-shoot re-encode the frames from the last run
 //
 // It runs on a fresh copy of demo/ in the system temp dir (never demo/ itself), with its own server on a free port.
@@ -11,7 +11,7 @@
 // What's real: the editor, the drawing (real mouse events), the file write, and the merge the page does when the file
 // changes. What's staged: the pointer, and the caption naming the steps, which is laid over the page.
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Page } from "@playwright/test";
@@ -21,6 +21,8 @@ const ROOT = join(import.meta.dirname, "..", "..");
 const WORK = join(tmpdir(), "localidraw-hero");
 const FRAMES = join(WORK, "frames");
 const OUT = join(ROOT, "docs", "media", "hero.gif");
+/** The docs site's copy, for its home page (Cloudflare builds website/ on its own, so it can't reach docs/). */
+const SITE_COPY = join(ROOT, "website", "public", "demo", "hero.gif");
 const SKIP_SHOOT = process.argv.includes("--skip-shoot");
 
 const CANVAS = "web-app/architecture.excalidraw";
@@ -263,6 +265,9 @@ function encode(frames: Frame[]) {
   const seconds = frames.reduce((s, f) => s + f.hold, 0);
   console.log(`hero: ${frames.length} frames, ${seconds.toFixed(1)} s, ${(size / 1024 / 1024).toFixed(2)} MB -> docs/media/hero.gif`);
   if (size > MAX_BYTES) throw new Error(`docs/media/hero.gif is ${(size / 1024 / 1024).toFixed(2)} MB, over the 3 MB budget`);
+  mkdirSync(join(SITE_COPY, ".."), { recursive: true });
+  copyFileSync(OUT, SITE_COPY);
+  console.log("hero: copied to website/public/demo/hero.gif");
 }
 
 const frames: Frame[] = SKIP_SHOOT ? JSON.parse(readFileSync(join(WORK, "frames.json"), "utf8")) : await shoot();
