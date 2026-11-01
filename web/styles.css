@@ -4,11 +4,6 @@
 html, body, #root, .ld-app { margin: 0; height: 100%; }
 .ld-app { position: relative; }
 
-.ld-loading {
-  height: 100%; display: flex; align-items: center; justify-content: center;
-  font: 0.875rem Assistant, system-ui, sans-serif; color: #7a7a7a;
-}
-
 .ld-offline {
   position: absolute; z-index: 10; top: 0.75rem; left: 50%; transform: translateX(-50%);
   padding: 0.5rem 0.875rem; border-radius: 0.5rem; background: #000; color: #fff;
@@ -85,8 +80,13 @@ html, body, #root, .ld-app { margin: 0; height: 100%; }
   color: var(--color-gray-50); pointer-events: none;
 }
 
-/* A folder with no canvases. */
-.ld-empty-folder { display: flex; align-items: center; justify-content: center; background: var(--color-surface-lowest, #fff); }
-.excalidraw .ld-empty-folder__island { padding: 1.5rem 1.75rem; max-width: 26rem; }
-.excalidraw .ld-empty-folder__island h1 { margin: 0 0 0.5rem; font-size: 1.125rem; font-weight: 700; color: var(--color-primary); }
-.excalidraw .ld-empty-folder__island p { margin: 0 0 1rem; font-size: 0.875rem; color: var(--color-on-surface); }
+/* A page outside Excalidraw (web/Screen.tsx): a folder with no canvases, or a canvas opening or that won't open. */
+.ld-screen { display: flex; align-items: center; justify-content: center; background: var(--color-surface-lowest, #fff); }
+.excalidraw .ld-screen__island { padding: 1.5rem 1.75rem; max-width: 26rem; }
+.excalidraw .ld-screen__island h1 { margin: 0 0 0.5rem; font-size: 1.125rem; font-weight: 700; color: var(--color-primary); overflow-wrap: anywhere; }
+.excalidraw .ld-screen__island > p:not(.ld-hint) { margin: 0 0 1rem; font-size: 0.875rem; color: var(--color-on-surface); }
+/* With the Canvases tab in it, so there's somewhere to go. */
+.excalidraw .ld-screen__island--canvases { display: flex; flex-direction: column; width: 26rem; max-height: 80vh; box-sizing: border-box; }
+.excalidraw .ld-screen__island--canvases .ld-canvases { padding: 0; }
+.excalidraw .ld-screen__island--canvases .ld-canvases > :not(.ld-projects) { flex: none; } /* only the list scrolls */
+.excalidraw .ld-loading { font-size: 0.875rem; color: var(--color-gray-50); }

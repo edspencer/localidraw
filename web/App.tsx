@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createCanvas, getProjects, type Project } from "./api.ts";
 import { CanvasesTab } from "./CanvasesTab.tsx";
 import { CanvasView } from "./CanvasView.tsx";
-import { prefs } from "./prefs.ts";
+import { Screen } from "./Screen.tsx";
 
 const pathFromUrl = () => new URLSearchParams(location.search).get("canvas");
 
@@ -72,9 +72,8 @@ export function App() {
 function EmptyFolder({ rootName, onCreate }: { rootName: string; onCreate: (path: string) => Promise<string | null> }) {
   const [error, setError] = useState<string | null>(null);
   return (
-    // Not inside Excalidraw, so it takes the theme itself: the one the canvases were last shown in.
-    <div className={`excalidraw ld-empty-folder${prefs.theme() === "dark" ? " theme--dark" : ""}`}>
-      <div className="Island ld-empty-folder__island">
+    <Screen>
+      <div className="Island ld-screen__island">
         <h1>No canvases in {rootName || "this folder"} yet</h1>
         <p>Localidraw shows the .excalidraw files under the folder it was started in.</p>
         <button type="button" className="ld-row ld-row--primary" onClick={async () => setError(await onCreate("untitled"))}>
@@ -82,6 +81,6 @@ function EmptyFolder({ rootName, onCreate }: { rootName: string; onCreate: (path
         </button>
         {error && <p className="ld-hint ld-hint--error">{error}</p>}
       </div>
-    </div>
+    </Screen>
   );
 }

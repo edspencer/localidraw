@@ -1,4 +1,6 @@
 // The editor against a real server and real files: the checks the 0.1.0 spike did by hand (TODO.md, "The editor").
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { drawRectangle, expect, fromSkeletons, onScreen, saves, settled, test, waitForCanvas } from "./fixtures.ts";
 
 test("opening and scrolling a canvas doesn't write it", async ({ page, folder, open }) => {
@@ -168,4 +170,26 @@ test("an empty canvas doesn't zoom in", async ({ page, open }) => {
   await page.mouse.wheel(0, 100);
   await settled(page);
   expect(await page.evaluate(() => window.localidraw!.api.getAppState().zoom.value)).toBe(1);
+});
+
+test("a canvas that won't open lists the others, and opens once it's mended", async ({ page, folder }) => {
+  const plan = folder.read("plan.excalidraw");
+  writeFileSync(join(folder.root, "plan.excalidraw"), '{"type":"excalidraw","elements":['); // half-written
+  const events = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/events");
+  await page.goto("/?canvas=plan.excalidraw");
+  await events; // so the page hears the file mended
+  await expect(page.getByRole("heading", { name: "Couldn't open plan.excalidraw" })).toBeVisible();
+  await expect(page.getByText(/^It isn't valid JSON/)).toBeVisible();
+
+  writeFileSync(join(folder.root, "plan.excalidraw"), plan);
+  await waitForCanvas(page, "plan.excalidraw");
+  expect((await onScreen(page)).length).toBeGreaterThan(0);
+  expect(folder.read("plan.excalidraw")).toBe(plan);
+});
+
+test("a link to a canvas that isn't there isn't a dead end", async ({ page }) => {
+  await page.goto("/?canvas=gone.excalidraw");
+  await expect(page.getByRole("heading", { name: "Couldn't open gone.excalidraw" })).toBeVisible();
+  await page.locator(".ld-row", { hasText: "notes" }).click();
+  await waitForCanvas(page, "notes.excalidraw");
 });

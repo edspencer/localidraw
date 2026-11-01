@@ -85,6 +85,31 @@ test("POST makes a canvas, with its folders, and won't overwrite one", async () 
   assert.equal((await call("POST", "/api/canvases", { body: JSON.stringify({ path: "../escape" }) })).status, 400);
 });
 
+test("a file that isn't a scene won't open (422), and isn't saved over; an empty file is an empty canvas", async () => {
+  const path = (name: string) => `/api/canvas?path=odd/${name}.excalidraw`;
+  mkdirSync(join(root, "odd"), { recursive: true });
+  const files = { half: '{"type":"excalidraw","elements":[', other: '{"hello":"world"}', list: "[1,2]", elementless: '{"elements":3}' };
+  for (const [name, content] of Object.entries(files)) {
+    writeFileSync(join(root, `odd/${name}.excalidraw`), content);
+    const r = await call("GET", path(name));
+    assert.equal(r.status, 422, name);
+    assert.match(r.json.error, name === "half" ? /^It isn't valid JSON: / : /^It's JSON, but not an Excalidraw scene\.$/, name);
+    // A page that had opened the file before it went bad still can't write over it.
+    const put = await call("PUT", path(name), { body: scene(1), headers: { "x-base-hash": "an-older-version" } });
+    assert.equal(put.status, 422, name);
+    assert.equal(readFileSync(join(root, `odd/${name}.excalidraw`), "utf8"), content, name);
+  }
+  assert.equal((await call("GET", path("missing"))).status, 404);
+
+  writeFileSync(join(root, "odd/touched.excalidraw"), "");
+  const empty = await call("GET", path("touched"));
+  assert.equal(empty.status, 200);
+  assert.deepEqual(empty.json.scene.elements, []);
+  assert.equal(empty.json.hash, contentHash(""));
+  assert.equal((await call("PUT", path("touched"), { body: scene(2), headers: { "x-base-hash": empty.json.hash } })).status, 200);
+  assert.equal(JSON.parse(readFileSync(join(root, "odd/touched.excalidraw"), "utf8")).elements.length, 2);
+});
+
 test("only localhost pages may call it", async () => {
   assert.equal((await call("GET", "/api/projects", { headers: { host: "evil.example" } })).status, 403);
   assert.equal((await call("PUT", "/api/canvas?path=top.excalidraw", { body: scene(0), headers: { origin: "http://evil.example" } })).status, 403);

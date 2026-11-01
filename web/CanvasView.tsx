@@ -6,6 +6,7 @@ import { getCanvas, putCanvas, type Loaded } from "./api.ts";
 import { changedSince, mergeScenes, versionsOf } from "./merge.ts";
 import { FoldersIcon } from "./icons.tsx";
 import { prefs } from "./prefs.ts";
+import { Screen } from "./Screen.tsx";
 
 const SAVE_AFTER_MS = 700;
 
@@ -60,6 +61,7 @@ type Props = {
 export function CanvasView({ path, sidebar, onDiskChange }: Props) {
   const [initial, setInitial] = useState<any>(null);
   const [status, setStatus] = useState("");
+  const [failed, setFailed] = useState<{ message: string; retries: boolean } | null>(null);
   const [docked, setDocked] = useState(prefs.docked());
   const api = useRef<ExcalidrawImperativeAPI | null>(null);
   // What the screen and the file last agreed on: the file's hash, each element's version, the background.
@@ -111,9 +113,11 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
   }, [path, absorb]);
 
   useEffect(() => {
-    let live = true;
-    getCanvas(path).then((loaded) => {
+    let live = true, failed = false;
+    const load = () => getCanvas(path).then((loaded) => {
       if (!live) return;
+      failed = false;
+      setFailed(null);
       const s = sync.current;
       const elements = restoreElements(loaded.scene.elements, null);
       s.hash = loaded.hash;
@@ -126,9 +130,15 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
         fit: !view && elements.some((e) => !e.isDeleted), // fitting an empty canvas zooms in absurdly
         appState: { ...loaded.scene.appState, ...(view ?? {}), theme: prefs.theme(), openSidebar: prefs.openSidebar() },
       });
-    }).catch((err) => setStatus(`Couldn't open it: ${err.message}`));
+    }).catch((err) => {
+      if (!live) return;
+      failed = true;
+      setFailed({ message: err.message, retries: err.status !== 400 });
+    });
+    void load();
 
     onDiskChange(async (hash) => {
+      if (failed) return void load(); // made, or mended, on disk: try again
       if (hash === sync.current.hash) return; // our own save
       const loaded = await getCanvas(path).catch(() => null);
       if (!loaded || loaded.hash === sync.current.hash) return;
@@ -161,7 +171,21 @@ export function CanvasView({ path, sidebar, onDiskChange }: Props) {
     sync.current.timer = setTimeout(() => { sync.current.timer = undefined; void save(); }, SAVE_AFTER_MS);
   }, [path, save]);
 
-  if (!initial) return <div className="ld-loading">{status || "Opening…"}</div>;
+  if (failed) {
+    return (
+      <Screen>
+        <div className="Island ld-screen__island ld-screen__island--canvases">
+          <h1>Couldn't open {path}</h1>
+          <p>
+            {failed.message}
+            {failed.retries && " It opens here as soon as the file is there and valid."}
+          </p>
+          {sidebar}
+        </div>
+      </Screen>
+    );
+  }
+  if (!initial) return <Screen><span className="ld-loading">Opening…</span></Screen>;
   return (
     <Excalidraw
       initialData={initial}
