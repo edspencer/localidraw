@@ -27,12 +27,12 @@ const scenes: Record<string, any[]> = {
   ],
   "web-app/login-flow.excalidraw": [
     { type: "rectangle", id: "a", x: 0, y: 0, width: 200, height: 70, label: { text: "Sign-in page" } },
-    { type: "diamond", id: "b", x: 10, y: 140, width: 180, height: 120, label: { text: "Password ok?" } },
+    { type: "diamond", id: "b", x: -15, y: 140, width: 230, height: 120, label: { text: "Password ok?" } },
     { type: "rectangle", id: "c", x: 0, y: 330, width: 200, height: 70, backgroundColor: "#b2f2bb", fillStyle: "solid", label: { text: "Dashboard" } },
     { type: "rectangle", id: "d", x: 300, y: 165, width: 180, height: 70, backgroundColor: "#ffc9c9", fillStyle: "solid", label: { text: "Try again" } },
-    { type: "arrow", x: 100, y: 70, width: 0, height: 70, start: { id: "a" }, end: { id: "b" } },
-    { type: "arrow", x: 100, y: 260, width: 0, height: 70, start: { id: "b" }, end: { id: "c" }, label: { text: "yes" } },
-    { type: "arrow", x: 190, y: 200, width: 110, height: 0, start: { id: "b" }, end: { id: "d" }, label: { text: "no" } },
+    { type: "arrow", x: 100, y: 70, width: 0, height: 70, points: [[0, 0], [0, 70]], start: { id: "a" }, end: { id: "b" } },
+    { type: "arrow", x: 100, y: 260, width: 0, height: 70, points: [[0, 0], [0, 70]], start: { id: "b" }, end: { id: "c" }, label: { text: "yes" } },
+    { type: "arrow", x: 215, y: 200, width: 85, height: 0, start: { id: "b" }, end: { id: "d" }, label: { text: "no" } },
   ],
   "notes/ideas.excalidraw": [
     { type: "rectangle", x: 0, y: 0, width: 220, height: 120, backgroundColor: "#ffec99", fillStyle: "solid", strokeColor: "#f08c00", label: { text: "Dark mode\nfor the export" } },
