@@ -31,8 +31,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    // With no canvas in the URL, open the first one there is.
-    void refresh().then((ps) => { if (!pathFromUrl() && ps[0]?.canvases[0]) open(ps[0].canvases[0].path, true); });
+    void refresh();
     let events: EventSource;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let lost = false;
@@ -68,6 +67,13 @@ export function App() {
     window.addEventListener("popstate", back);
     return () => { clearTimeout(retry); events.close(); window.removeEventListener("popstate", back); };
   }, []);
+
+  // With no canvas open (none in the URL, or the folder was empty), open the first one there is, as soon as there is
+  // one: a canvas an agent or a `git pull` makes in an empty folder shows up without a reload.
+  const first = projects[0]?.canvases[0]?.path;
+  useEffect(() => {
+    if (!path && first) open(first, true);
+  }, [path, first]);
 
   useEffect(() => {
     document.title = path ? `${path.split("/").pop()?.replace(/\.excalidraw$/, "")} · Localidraw` : "Localidraw";

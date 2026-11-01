@@ -167,3 +167,17 @@ test("the open canvas put back on disk (a checkout) picks up again, keeping what
   await expect(page.locator(".ld-notice")).toHaveCount(0);
   await expect.poll(() => folder.elements("notes.excalidraw").length).toBe(2);
 });
+
+test.describe("an empty folder", () => {
+  test.use({ folderName: null });
+  // The empty-folder screen heard the new canvas (the list refreshed) but went on saying there were none.
+  test("opens the first canvas made on disk, without a reload", async ({ page, folder, open }) => {
+    await open();
+    await expect(page.getByRole("button", { name: "Make the first one" })).toBeVisible();
+    mkdirSync(join(folder.root, "plans"));
+    folder.writeRaw("plans/first.excalidraw", JSON.stringify({ type: "excalidraw", version: 2, elements: [], appState: {}, files: {} }));
+    await waitForCanvas(page, "plans/first.excalidraw");
+    expect(new URL(page.url()).searchParams.get("canvas")).toBe("plans/first.excalidraw");
+  });
+});
+
