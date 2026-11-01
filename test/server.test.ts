@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { contentHash, listProjects, resolveInRoot } from "../server/files.ts";
+import { contentHash, listProjects, resolveInRoot, writeAtomic } from "../server/files.ts";
 import { startServer, type Running } from "../server/server.ts";
 
 let root: string, web: string, app: Running;
@@ -91,11 +91,15 @@ test("only localhost pages may call it", async () => {
   assert.equal((await call("GET", "/api/projects")).status, 200);
 });
 
-test("a change on disk is announced to the page", async () => {
+/**
+ * Resolves once the server announces `rel` with the content `write` puts there. The watcher can take a moment to
+ * start (FSEvents on macOS), so it writes every 300 ms until the change is seen, up to 5 s.
+ */
+function announced(rel: string, content: string, write: () => void) {
   const { port } = new URL(app.url);
   const events: any[] = [];
-  const isThisWrite = (e: any) => e.type === "changed" && e.path === "team/alpha/a.excalidraw" && e.hash === contentHash(scene(5));
-  const done = new Promise<void>((ok, fail) => {
+  const isThisWrite = (e: any) => e.type === "changed" && e.path === rel && e.hash === contentHash(content);
+  return new Promise<void>((ok, fail) => {
     let poke: NodeJS.Timeout | undefined;
     const req = request({ host: "127.0.0.1", port, path: "/api/events", headers: { host: `localhost:${port}` } }, (res) => {
       res.setEncoding("utf8");
@@ -107,13 +111,26 @@ test("a change on disk is announced to the page", async () => {
       });
     });
     req.end();
-    // The file watcher can take a moment to start (FSEvents on macOS), so write until the change is seen, up to 5 s.
     let tries = 0;
     poke = setInterval(() => {
-      writeFileSync(join(root, "team/alpha/a.excalidraw"), scene(5));
-      if (++tries > 15) { clearInterval(poke); req.destroy(); fail(new Error("no change event within 5 s")); }
+      write();
+      if (++tries > 15) { clearInterval(poke); req.destroy(); fail(new Error(`no change event for ${rel} within 5 s`)); }
     }, 300);
   });
-  await done;
-  assert.ok(events.some(isThisWrite));
+}
+
+test("a change on disk is announced to the page", async () => {
+  await announced("team/alpha/a.excalidraw", scene(5), () => writeFileSync(join(root, "team/alpha/a.excalidraw"), scene(5)));
+});
+
+// Node's recursive watch on Linux follows each file, and stopped hearing a file once another was renamed over it:
+// after the page's first save (writeAtomic), changes made by an agent never arrived.
+test("a change on disk is still announced after a save renamed a new file over it", async () => {
+  await announced("team/alpha/b.excalidraw", scene(6), () => writeAtomic(join(root, "team/alpha/b.excalidraw"), scene(6)));
+  await announced("team/alpha/b.excalidraw", scene(7), () => writeFileSync(join(root, "team/alpha/b.excalidraw"), scene(7)));
+});
+
+test("canvases in a folder made after the server started are watched", async () => {
+  mkdirSync(join(root, "later/deeper"), { recursive: true });
+  await announced("later/deeper/c.excalidraw", scene(8), () => writeFileSync(join(root, "later/deeper/c.excalidraw"), scene(8)));
 });
