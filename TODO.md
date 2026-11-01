@@ -39,7 +39,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
   runs. Set it from the stored theme before the bundle loads.
 - [ ] **Tool shortcuts after picking a canvas.** With focus left in the sidebar, `r`, `o` and the rest don't reach the
   canvas until it's clicked. Hand focus to the canvas once one opens.
-- [ ] **A dev mode with hot reload** (`npm run dev`). Today it's `npm start`, which builds and runs.
 
 ## Compatibility and platforms
 

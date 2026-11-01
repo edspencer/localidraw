@@ -17,6 +17,16 @@ npm start                       # build, then run on this checkout's folder
 npm start -- ~/some/folder --port 5050
 ```
 
+**While you work on it, use dev mode:** `npm run dev`, which takes the same folder and options
+(`npm run dev -- "$(mktemp -d)" --port 5050`).
+
+- The page is rebuilt on every change under `web/` (esbuild in watch mode, with React's and Excalidraw's development
+  builds and source maps), and the open tab reloads itself once the build is done.
+- The server runs from source with `tsx watch`, and restarts on every change under `server/`. The page reconnects, as
+  it does whenever the server comes back.
+- It writes the development build into `dist/web`, so run `npm run build` (or `npm start`) before you pack or test
+  the package. `npm run test:e2e` builds the page itself.
+
 **Keep your real drawings out of it while you develop.** Localidraw saves as you draw, so point a development copy at
 a scratch folder (`npm start -- "$(mktemp -d)"`) or at a copy of some canvases, not at work you care about.
 

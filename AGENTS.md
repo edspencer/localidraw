@@ -61,6 +61,7 @@ For agents (and people) developing Localidraw itself.
 ```sh
 npm install
 npm start             # build, then run (npm start -- <folder> --port <n>)
+npm run dev           # the same, rebuilding the page and restarting the server as you edit (CONTRIBUTING.md)
 npm test              # node:test via tsx
 npm run typecheck
 npm run build         # dist/web (esbuild) + dist/server (tsc)
