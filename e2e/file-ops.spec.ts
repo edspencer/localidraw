@@ -192,3 +192,17 @@ test("a canvas that seemed deleted, then turns up moved or put back, no longer s
   await expect(notice).toHaveCount(0);
   await expect(status).not.toHaveText(/Not saved/);
 });
+
+test.describe("an empty folder", () => {
+  test.use({ folderName: null });
+  // The empty-folder screen heard the new canvas (the list refreshed) but went on saying there were none.
+  test("opens the first canvas made on disk, without a reload", async ({ page, folder, open }) => {
+    await open();
+    await expect(page.getByRole("button", { name: "Make the first one" })).toBeVisible();
+    mkdirSync(join(folder.root, "plans"));
+    folder.writeRaw("plans/first.excalidraw", JSON.stringify({ type: "excalidraw", version: 2, elements: [], appState: {}, files: {} }));
+    await waitForCanvas(page, "plans/first.excalidraw");
+    expect(new URL(page.url()).searchParams.get("canvas")).toBe("plans/first.excalidraw");
+  });
+});
+
