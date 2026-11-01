@@ -35,11 +35,47 @@ For agents (and people) developing Localidraw itself.
   unless the root has a `library.excalidrawlib` (`web/library.ts`): then it's that file, saved like a canvas (base
   hash, 409, merge by item, `writeAtomic`) and only when the Library changed. The server never creates that file.
 - **Excalidraw is pinned at 0.18.1**, the version the VS Code extension (`pomdtr.excalidraw-editor`) uses, so files
-  round-trip between them. Moving to a newer Excalidraw means checking that the extension can still open what we save.
-  React stays at 18: Excalidraw 0.18's bundled Radix packages declare React 18 or below.
+  round-trip between them. Moving to a newer Excalidraw means going through [Upgrading Excalidraw](#upgrading-excalidraw)
+  below. React stays at 18: Excalidraw 0.18's bundled Radix packages declare React 18 or below.
 - **No runtime dependencies.** The server is plain Node (`node:http`, `node:fs`). The page's libraries are bundled into
   `dist/web` at build time, so they're `devDependencies`.
 - Personal, machine-specific rules go in a git-ignored `CLAUDE.local.md` next to this file.
+
+## Upgrading Excalidraw
+
+Dependabot leaves `@excalidraw/excalidraw` alone (`.github/dependabot.yml`): moving off 0.18.1 is a deliberate PR, and
+its body says how each of these went.
+
+1. **The VS Code extension.** Find which Excalidraw `pomdtr.excalidraw-editor`'s current release bundles. Then save a
+   canvas from the new Localidraw with text, arrows bound to shapes, a frame, an embedded image and a Library item, and
+   open it in the extension: it must open, look the same, and save back without Localidraw then seeing a change it
+   didn't make. Do the same the other way round, from a file the extension saved. If the extension is still on 0.18,
+   don't upgrade: a file it can't open is worse than an older editor.
+2. **React.** Excalidraw bundles its own `@radix-ui` packages (`node_modules/@excalidraw/excalidraw/node_modules/@radix-ui`);
+   at 0.18.1, `react-tabs` there declares `react` `^16.8 || ^17.0 || ^18.0`. Move React to 19 only once every one of
+   them accepts it (`npm ls react` and those `peerDependencies`), and Excalidraw's own `peerDependencies` too. Bump
+   `react`, `react-dom` and their `@types` together, and the dependabot hold on React majors with them.
+3. **The merge.** `web/merge.ts` relies on each element's `version` going up on every edit, on `versionNonce` telling
+   two edits at one version apart, on `isDeleted` tombstones, and on `index` (fractional, as strings) for z-order.
+   Check the release notes for any change to those, and to `restoreElements` (`repairBindings`, `refreshDimensions`),
+   `serializeAsJSON`, `updateScene`'s `captureUpdate` and `CaptureUpdateAction`, all used in `web/CanvasView.tsx`.
+   `npm test` (`test/merge.test.ts`) and `npm run test:e2e` must pass unchanged; a test that needs editing is a
+   behaviour change to explain.
+4. **Opening never writes.** Open every canvas in `demo/` and `e2e/folders/`, and pan and zoom: `git status`
+   stays clean. A newer Excalidraw that normalises something new on load (a version bump in `restore`) would rewrite
+   every file opened.
+5. **The look.** `npm run test:e2e:snapshots` in both themes. Excalidraw's chrome changing is expected, so remake the
+   baselines with `-- --update-snapshots`, and look at every diff before committing it (e2e/README.md). Check that
+   `docs/AESTHETIC.md` still describes what Excalidraw looks like, and re-record the hero GIF if the editor looks
+   different (`npm run docs:media:hero`).
+6. **Fonts and size.** `scripts/build-web.mjs` copies `dist/prod/fonts` whole: check the set still loads offline (no
+   requests leave the page, with the network off) and that text measures the same (an agent's narrow label still
+   shows in full). `npm run smoke:pack` holds the package to its size budget; if a new font set or chunk needs more,
+   raise the budget in that PR and say why.
+7. **The Library.** A `library.excalidrawlib` from 0.18 still loads, and a save (`serializeLibraryAsJSON`) still writes `version: 2` and `libraryItems`,
+   which older Excalidraws read.
+8. **The docs.** This file's pin bullet, the README, the docs site's FAQ, and a changeset (a minor, at least: files
+   saved after it may need a newer extension).
 
 ## Layout
 
