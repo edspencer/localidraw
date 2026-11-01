@@ -36,10 +36,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
 - [ ] **Excalidraw upgrades.** It's pinned at 0.18.1, the version the VS Code extension uses, so files round-trip.
   Before moving to a newer Excalidraw, check that the extension still opens what we save. React stays at 18 until
   Excalidraw's bundled Radix packages accept 19.
-- [ ] **Big folders on Linux**: Localidraw watches each folder there (Node's recursive watch went deaf to a file once
-  another was renamed over it), skipping dot-folders and `node_modules`. It still watches folders with no canvases, so
-  it can see new ones arrive; a tree with many such folders costs an inotify watch each
-  (`fs.inotify.max_user_watches`).
 - [ ] **Other formats?** `.excalidraw.svg` and `.excalidraw.png` (a scene embedded in an image, as the VS Code
   extension and Obsidian write). (`library.excalidrawlib` at the root is the shared Library.)
 - [ ] **`npm audit`**: two findings left in Excalidraw's dependencies (`nanoid` 4 and `katex`, through Mermaid), neither
