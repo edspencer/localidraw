@@ -7,8 +7,6 @@ Roughly in priority order within each section. Strike items out, or delete them,
 
 - [ ] **Review `AI-DECLARATION.md`.** It's a draft written by Claude in Ed's voice, modelled on Local Review's. Make it
   true and yours.
-- [ ] **Releases**: changesets plus a release workflow with npm trusted publishing and provenance, never from a
-  laptop, as in Local Review (`RELEASING.md`, `.changeset/`). `publishConfig` already asks for provenance.
 - [ ] **Publish `localidraw` to npm.** The name was free on 2026-11-01, so `npx localidraw` should then work.
 - [ ] **README hero image** from a neutral demo folder. The spike's screenshots were of private diagrams, so none
   are committed. Maybe a short GIF of drawing while an agent edits the same canvas.
