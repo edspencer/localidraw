@@ -28,7 +28,7 @@ For agents (and people) developing Localidraw itself.
   `Sec-Fetch-Site`, and writes must be `application/json` (415 otherwise). Localidraw has no login: authentication is
   the reverse proxy's job, and the docs and the startup output say so. Don't add a route around `guard`, a wildcard
   allowed host, or CORS headers.
-- **The CLI follows the [CLI contract](https://github.com/edspencer/cli-contract)** (SPEC 0.2) that Ed's local tools
+- **The CLI follows the [CLI contract](https://github.com/edspencer/cli-contract)** (SPEC 1.0) that Ed's local tools
   share. `localidraw [serve] [folder]`: command names (`serve`, `service`, `update` with its hidden alias `upgrade`,
   `busy`, `doctor`) win over a folder's, which is given as `./service`, and each comes first. A flag a command can't
   act on is a usage error, not dropped. Exit codes are the contract's (`server/contract/exit-codes.ts`): 1 for a
