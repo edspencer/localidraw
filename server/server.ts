@@ -29,7 +29,17 @@ export type Running = {
    * Resolves with how many it had to cut off after `timeoutMs`; 0 means every one finished.
    */
   drain: (timeoutMs: number, waiting?: (count: number) => void) => Promise<number>;
+  /** The writes under way, as `/api/busy` counts them. */
+  busy: () => BusyCounts;
 };
+
+/**
+ * What `/api/busy` counts (the CLI contract's SPEC §4): the writes a restart would cut short. `canvas` is a save, or a
+ * new canvas, a rename, a move, a delete or an undo of one, from the request's start to its answer; `library` is a
+ * save of the folder's Library file. An open page isn't counted: it saves again once the server is back
+ * (e2e/restart.spec.ts).
+ */
+export type BusyCounts = { canvas: number; library: number };
 
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_POLL = 2000;
@@ -214,6 +224,8 @@ export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHo
   let active = 0;
   let draining = false;
   let drained = () => {};
+  // Counted around every write, so /api/busy reads two numbers and never the disk.
+  const busy: BusyCounts = { canvas: 0, library: 0 };
 
   const server = createServer(async (req, res) => {
     if (draining) {
@@ -235,10 +247,19 @@ export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHo
     try { url = new URL(`http://localhost${req.url ?? "/"}`); } catch { return res.writeHead(400).end(); }
     const path = url.pathname;
     const read = req.method === "GET" || req.method === "HEAD"; // Node leaves out the body for a HEAD
+    // A write, counted until it's answered (or the connection drops). Anything else that isn't a read is answered 404
+    // below, quickly, so counting it too does no harm.
+    const kind: keyof BusyCounts | undefined = read ? undefined : path === "/api/library" ? "library" : path.startsWith("/api/canvas") ? "canvas" : undefined;
+    if (kind) {
+      busy[kind]++;
+      res.once("close", () => { busy[kind]--; });
+    }
     try {
       if (read && path === "/") return await serveStatic(req, res, "index.html");
       if (read && path.startsWith("/static/")) return await serveStatic(req, res, path.slice("/static/".length));
       if (read && path === "/api/health") return await json(req, res, 200, { ok: true, version: pkg.version });
+      // Counts only, no labels, so it needs no more than the guard every request goes through (SPEC §4).
+      if (read && path === "/api/busy") return await json(req, res, 200, { busy: busy.canvas + busy.library > 0, version: pkg.version, counts: { ...busy } });
       if (req.method === "GET" && path === "/api/projects") return await json(req, res, 200, { root, projects: listProjects(root) });
       if (req.method === "GET" && path === "/api/events") {
         // Never compressed, and `x-accel-buffering: no`, so a proxy passes each event on as it comes.
@@ -372,6 +393,7 @@ export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHo
           // open, which would hold close() up for good; so drop every connection rather than wait for them.
           server.closeAllConnections();
         }),
+        busy: () => ({ ...busy }),
         drain: (timeoutMs, waiting) => new Promise((done) => {
           draining = true;
           watcher.close();

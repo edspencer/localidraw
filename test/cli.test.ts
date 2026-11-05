@@ -118,13 +118,79 @@ test("--version is bare, and --help exits 0 with the commands, the options and t
   }
 });
 
-test("the commands still to come are reserved: they exit 2 and say how to serve a folder of that name", () => {
-  for (const command of ["update", "upgrade", "busy", "doctor"]) {
+test("busy, update and doctor have their own help; upgrade works and isn't listed", () => {
+  for (const [command, first] of [["busy", "localidraw busy:"], ["update", "localidraw update:"], ["upgrade", "localidraw update:"], ["doctor", "localidraw doctor:"]]) {
     const r = run([command, "--help"]);
-    assert.equal(r.status, 2, command);
-    assert.match(r.stderr, new RegExp(`^localidraw: \`localidraw ${command}\` is coming in a later version. To serve a folder called ${command}, give it as \\./${command}\n`));
-    assert.match(r.stderr, /\nUsage: localidraw/);
+    assert.equal(r.status, 0, command);
+    assert.ok(r.stdout.startsWith(first), `${command}: ${r.stdout}`);
   }
+  const help = run(["--help"]).stdout;
+  for (const command of ["busy", "update", "doctor"]) assert.match(help, new RegExp(`\\n  ${command} `), command);
+  assert.doesNotMatch(help, /upgrade/, "a hidden alias");
+});
+
+test("a flag belongs to its command: anything else is exit 2, with that command's usage", () => {
+  for (const [args, usage] of [
+    [["busy", "--force"], "Usage: localidraw busy"],
+    [["busy", "--check"], "Usage: localidraw busy"],
+    [["busy", "now"], "Usage: localidraw busy"],
+    [["update", "--refresh"], "Usage: localidraw update"],
+    [["update", "--offline"], "Usage: localidraw update"],
+    [["update", "0.6.0"], "Usage: localidraw update"],
+    [["update", "--to"], "Usage: localidraw update"],
+    [["upgrade", "--dry-run"], "Usage: localidraw update"],
+    [["doctor", "--force"], "Usage: localidraw doctor"],
+    [["doctor", "--yes"], "Usage: localidraw doctor"],
+    [["serve", "--force"], "Usage: localidraw [serve]"],
+    [["--open", "busy"], "Usage: localidraw [serve]"],
+  ] as const) {
+    const r = run([...args]);
+    assert.equal(r.status, 2, args.join(" "));
+    assert.equal(r.stdout, "", args.join(" "));
+    assert.match(r.stderr, /^localidraw: /, args.join(" "));
+    assert.ok(r.stderr.includes(`\n${usage}`), `${args.join(" ")}: ${r.stderr}`);
+  }
+});
+
+test("busy exits 3 when nothing is running, and its --json says so", () => {
+  const r = run(["busy"]);
+  assert.equal(r.status, 3);
+  assert.equal(r.stdout, "Localidraw isn't running.\n");
+  const j = run(["busy", "--json"]);
+  assert.equal(j.status, 3);
+  assert.deepEqual(JSON.parse(j.stdout), { running: false, busy: false });
+});
+
+test("busy finds a running serve through runtime.json, and exits 0 while it's idle", { ...started, timeout: 60_000 }, async () => {
+  const s = serve([empty, "--port", "0"]);
+  try {
+    const url = await s.url;
+    const r = run(["busy"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, "Localidraw isn't busy.\n");
+    const j = run(["busy", "--json"]);
+    assert.equal(j.status, 0);
+    const doc = JSON.parse(j.stdout);
+    assert.deepEqual(doc, { running: true, busy: false, url: url.replace(/\/$/, ""), version: JSON.parse(readFileSync(join(import.meta.dirname, "../package.json"), "utf8")).version, counts: { canvas: 0, library: 0 } });
+    assert.equal(j.stderr, "Localidraw isn't busy.\n", "the prose on stderr, the document alone on stdout");
+  } finally {
+    stop(s.child);
+    await s.exited;
+  }
+});
+
+test("doctor --offline --json: one document with the spec's checks and Localidraw's, and the exit code agreeing with ok", () => {
+  const r = run(["doctor", "--offline", "--json"]);
+  const doc = JSON.parse(r.stdout);
+  assert.equal(doc.ok, r.status === 0, r.stdout);
+  assert.ok([0, 1].includes(r.status!));
+  const ids = doc.checks.map((c: { id: string }) => c.id);
+  for (const id of ["node-engines", "install-method", "unit", "running-version", "port", "linger", "data-home", "update", "page", "folder", "inotify"]) assert.ok(ids.includes(id), id);
+  assert.equal(doc.checks.find((c: { id: string }) => c.id === "update").status, "skip", "--offline asks nobody");
+  for (const c of doc.checks) if (c.status === "fail") assert.ok(c.fix, `${c.id} fails without a fix`);
+  const prose = run(["doctor", "--offline"]);
+  assert.match(prose.stdout, /^✓ Node /);
+  assert.match(prose.stdout, /\n- not asking the registry for a newer version \(--offline\)\n/);
 });
 
 test("serve is the default, and a folder named like a command is reached as ./name", { ...started, timeout: 60_000 }, async () => {
