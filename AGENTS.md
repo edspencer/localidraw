@@ -34,7 +34,10 @@ For agents (and people) developing Localidraw itself.
   act on is a usage error, not dropped. Exit codes are the contract's (`server/contract/exit-codes.ts`): 1 for a
   failure such as a port in use, 2 for a usage error with the usage after the message, 3 and 4 for not running and
   not installed, 5 to 7 for `update`, 75 for busy. Set `process.exitCode` rather than calling `process.exit()`. `serve`'s first stdout line is
-  `Localidraw <version>: <url>`, and nothing goes to stdout before it; warnings go to stderr. SIGTERM and Ctrl-C stop
+  `Localidraw <version>: <url>`, and nothing goes to stdout before it; warnings go to stderr. `--quiet` prints that line
+  alone. `--json` means one document on stdout and nothing else there (prose goes to stderr), on every command but
+  `serve` and `service logs`; `service install`/`uninstall`/`start`/`stop`/`restart` print `status`'s report plus
+  `ok`, `action` and `error`, Hallway's shape. SIGTERM and Ctrl-C stop
   it through `drain` in `server/server.ts`, which lets the requests under way (a save mid-`writeAtomic`) finish first,
   so write before you answer: `drain` waits for each request's answer, not for work done after it. `server/contract/`
   holds copies of the contract's `reference/` files, each with its header; fix them in `edspencer/cli-contract` first,

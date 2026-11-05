@@ -17,10 +17,12 @@
 //                                     ~/.localidraw/logs/service.log, which gets the banner (so stdout reaches it)
 //   status / status --json            exit 0, running and answering, the installed version is the running one
 //   runtime.json                      in ~/.localidraw, not group or world readable, naming the supervisor's pid
+//   busy, stop, restart mid-write     exit 75, and the same process still answering; stop --json: error "busy"
 //   --dry-run                         prints the unit, and leaves the installed one alone
 //   logs -n, an unknown flag          exit 0; exit 2
 //   SIGKILL                           the manager brings it back (KeepAlive / Restart=always)
 //   stop                              exit 0; it stops, runtime.json goes, status 3, and it's still enabled
+//   stop/start --json                 one document: ok, action, wasRunning, and what status reports
 //   start, restart                    exit 0, answering again
 //   install --refresh                 exit 0; the unit is re-written as it was
 //   install another folder, hosted    the one service moves there, on 0.0.0.0 with an allowed host, and answers
@@ -202,6 +204,10 @@ try {
   for (const verb of ["stop", "restart"]) {
     assert.match(expectExit(75, "service", verb).stderr, /^localidraw: Localidraw is busy: 1 canvas save is running\. Try again/, verb);
   }
+  const refused = expectExit(75, "service", "stop", "--json");
+  assert.match(refused.stderr, /is busy: 1 canvas save/);
+  const refusedDoc = JSON.parse(refused.stdout);
+  assert.deepEqual([refusedDoc.ok, refusedDoc.action, refusedDoc.error, refusedDoc.running, refusedDoc.answering], [false, "stop", "busy", true, true]);
   assert.equal(statusJson(0).pid, s.pid, "refused: still the same process, still answering");
   held.end(body.slice(5));
   assert.equal(await created, 201);
@@ -237,10 +243,12 @@ try {
   await until("runtime.json to go", () => !fs.existsSync(runtimeFile));
   assert.ok(stillEnabled(unit), "stop doesn't disable it: the next login starts it again");
   expectExit(0, "service", "logs", "-n", "3");
-  expectExit(0, "service", "stop"); // already stopped
+  const again = JSON.parse(expectExit(0, "service", "stop", "--json").stdout); // already stopped
+  assert.deepEqual([again.ok, again.action, again.wasRunning, again.installed, again.running], [true, "stop", false, true, false]);
 
-  step("start, then restart");
-  expectExit(0, "service", "start");
+  step("start --json, then restart");
+  const startedDoc = JSON.parse(expectExit(0, "service", "start", "--json").stdout);
+  assert.deepEqual([startedDoc.ok, startedDoc.action, startedDoc.wasRunning, startedDoc.answering, startedDoc.runningVersion], [true, "start", false, true, version]);
   await until("health after start", () => health(port));
   const startedPid = statusJson(0).pid;
   expectExit(0, "service", "restart");

@@ -42,8 +42,9 @@ The documentation is at **https://localidraw.edspencer.net**, including
 ## Options
 
 ```
-localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>] [--poll [ms]]
-localidraw service install [folder] | uninstall | start | stop | restart | status [--json] | logs [-f]
+localidraw [serve] [folder] [--port <n>] [--open] [-q] [--host <addr> --allowed-host <name>] [--poll [ms]]
+localidraw service install [folder] | uninstall | start | stop | restart | status   [--json]
+localidraw service logs [-f] [-n <lines>]
 localidraw update [--check] [--to <version|tag>] [--yes] [--force] [--json]
 localidraw busy [--json]
 localidraw doctor [--json] [--offline]
@@ -54,6 +55,7 @@ localidraw doctor [--json] [--offline]
   names win over folder names: a folder called `service`, `update`, `busy` or `doctor` is given as `./service`.
 - `--port <n>`: the port (default 3729, which spells "DRAW" on a phone keypad, or `$PORT`).
 - `--open`: open it in your browser.
+- `-q`, `--quiet`: print only the first line, `Localidraw <version>: <url>`.
 
 To host it (on a server, or in Docker, behind a reverse proxy):
 

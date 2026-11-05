@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>…] [--poll [ms]]
+// localidraw [serve] [folder] [--port <n>] [--open] [--quiet] [--host <addr> --allowed-host <name>…] [--poll [ms]]
 // localidraw service install | uninstall | start | stop | restart | status | logs (service.ts)
 // localidraw busy [--json] · update [--check] [--to] [--yes] [--force] [--json] (update.ts) · doctor [--json] [--offline] (doctor.ts)
 import { spawn } from "node:child_process";
@@ -25,7 +25,7 @@ const COMMANDS = ["serve", "service", "update", "upgrade", "busy", "doctor"];
 /** How long a stop waits for the requests under way before it cuts them off. */
 const DRAIN_MS = 5000;
 
-const USAGE = `Usage: localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>…] [--poll [ms]]
+const USAGE = `Usage: localidraw [serve] [folder] [--port <n>] [--open] [-q] [--host <addr> --allowed-host <name>…] [--poll [ms]]
        localidraw service install | uninstall | start | stop | restart | status | logs   (localidraw service --help)
        localidraw busy [--json]
        localidraw update [--check] [--to <version|tag>] [--yes] [--force] [--json]
@@ -65,6 +65,7 @@ Usage: localidraw [serve] [folder] [options]
 Options:
   --port <n>        the port (default ${DEFAULT_PORT}, or $PORT)
   --open            open it in your browser
+  -q, --quiet       print only the first line, \`Localidraw <version>: <url>\`
   -v, --version     print the version
   -h, --help        print this
 
@@ -94,6 +95,7 @@ async function main(args: string[]): Promise<number | undefined> {
   let folder: string | undefined;
   let portArg: string | undefined;
   let open = false;
+  let quiet = false;
   let hostArg: string | undefined;
   let allowedArgs: string[] | undefined;
   let pollArg: string | undefined;
@@ -106,6 +108,7 @@ async function main(args: string[]): Promise<number | undefined> {
     if (a === "-h" || a === "--help") { out.say(HELP.trimEnd()); return EXIT.OK; }
     else if (a === "-v" || a === "--version") { out.say(pkg.version); return EXIT.OK; }
     else if (a === "--open") open = true;
+    else if (a === "-q" || a === "--quiet") quiet = true;
     else if (a === "--port") portArg = value(++i, "a number");
     else if (a.startsWith("--port=")) portArg = a.slice("--port=".length);
     else if (a === "--host") hostArg = value(++i, "an address");
@@ -190,16 +193,21 @@ async function main(args: string[]): Promise<number | undefined> {
     process.channel.unref();
   }
 
-  const count = listProjects(root).reduce((n, p) => n + p.canvases.length, 0);
+  const count = quiet ? 0 : listProjects(root).reduce((n, p) => n + p.canvases.length, 0);
   const local = isLoopbackAddress(host);
-  // The banner is the first line on stdout (SPEC §3): nothing is written there before it.
-  process.stdout.write([
+  // The banner is the first line on stdout (SPEC §3): nothing is written there before it. --quiet prints that line
+  // alone; the warning that a hosted Localidraw has no login still goes out, on stderr.
+  const noLogin = `  Localidraw has no login: anyone who can reach this port can read and change these canvases. Put it behind a reverse proxy that does authentication.`;
+  if (quiet) {
+    process.stdout.write(`Localidraw ${pkg.version}: ${url}\n`);
+    if (!local) process.stderr.write(`${noLogin.trim()}\n`);
+  } else process.stdout.write([
     `Localidraw ${pkg.version}: ${url}`,
     `  ${root} (${count} canvas${count === 1 ? "" : "es"})`,
     `  listening on ${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port || new URL(url).port}${local ? " (this machine only)" : ""}`,
     `  answering to localhost${allowedHosts.map((h) => `, ${h}`).join("")}`,
     `  watching for changes ${poll ? `by checking the files every ${poll} ms` : "by file events"}`,
-    ...(local ? [] : [`  Localidraw has no login: anyone who can reach this port can read and change these canvases. Put it behind a reverse proxy that does authentication.`]),
+    ...(local ? [] : [noLogin]),
     "",
   ].join("\n"));
 

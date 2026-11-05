@@ -53,7 +53,8 @@ type Action = (typeof ACTIONS)[number];
 
 export const SERVICE_USAGE = `Usage: localidraw service install [folder] [--port <n>] [--host <addr> --allowed-host <name>…] [--poll [ms]]
                                  [--refresh] [--dry-run] [--from-checkout]
-       localidraw service uninstall | start | stop [--force] | restart [--force]
+                                 [--json]
+       localidraw service uninstall | start | stop [--force] | restart [--force]   [--json]
        localidraw service status [--json]
        localidraw service logs [-f] [-n <lines>]
 `;
@@ -81,6 +82,9 @@ ${SERVICE_USAGE}
                     or 4 (not installed).
   logs [-f] [-n <lines>]
                     the last lines of ~/.localidraw/logs/service.log (default ${DEFAULT_LOG_LINES}); -f follows it
+
+  --json            on every command but logs: one JSON document on stdout, what status reports plus ok, action
+                    and (when it failed) error; what it says for a person goes to stderr. The exit code is the same.
 
 The service reads only its flags, not $LOCALIDRAW_HOST and the rest. Its log, its working folder and runtime.json
 are in ~/.localidraw; your canvases stay in the folder it serves. More: https://localidraw.edspencer.net/service/
@@ -217,7 +221,7 @@ const SCOPED: Record<string, readonly Action[]> = {
   "--port": ["install"], "--host": ["install"], "--allowed-host": ["install"], "--poll": ["install"],
   "--refresh": ["install"], "--dry-run": ["install"], "--from-checkout": ["install"],
   "--force": ["stop", "restart"],
-  "--json": ["status"],
+  "--json": ["install", "uninstall", "start", "stop", "restart", "status"],
   "--follow": ["logs"], "--lines": ["logs"],
 };
 const ALIASES: Record<string, string> = { "-f": "--follow", "-n": "--lines" };
@@ -338,7 +342,11 @@ export async function runService(args: readonly string[], ctx: ServiceContext): 
     if (!(err instanceof UnsupportedPlatformError)) throw err;
     // Windows (P3). `status` still answers truthfully, that nothing's installed (4), so a script can ask it anywhere;
     // everything else can't do what it was asked, and exits 1.
-    if (o.action !== "status") return out.error(`${err.message.replace(/^`localidraw service`/, `\`localidraw service ${o.action}\``)} (A Windows service is planned.)`);
+    if (o.action !== "status") {
+      const message = `${err.message.replace(/^`localidraw service`/, `\`localidraw service ${o.action}\``)} (A Windows service is planned.)`;
+      out.result({ ok: false, action: o.action, error: message, ...withUpdate(emptyReport(home, null, null, [err.message]), home) });
+      return out.error(message);
+    }
     const report = withUpdate(emptyReport(home, null, null, [err.message]), home);
     out.result(report);
     if (!o.json) out.say(`Localidraw isn't installed as a service: ${err.message}`);
@@ -346,20 +354,53 @@ export async function runService(args: readonly string[], ctx: ServiceContext): 
     return EXIT.NOT_INSTALLED;
   }
 
+  if (o.action === "status") return await status(o, ctx, manager, out, home, probe);
+  if (o.action === "logs") return await logs(o, manager, out, home, ctx.stdout ?? process.stdout);
+
+  // install, uninstall, start, stop, restart. With --json (SPEC §1's "should"), each ends with one document on stdout,
+  // whatever happened: what `status` reports afterwards, plus `ok`, `action`, what it found on the way, and `error`
+  // when it failed. The same shape as Hallway's, so a script can treat the tools alike. Prose went to stderr.
+  const outcome: Outcome = {};
+  let code: number;
   try {
     switch (o.action) {
-      case "install": return await install(o, ctx, manager, out, home, probe, waitReady);
-      case "uninstall": return uninstall(manager, out, home);
-      case "status": return await status(o, ctx, manager, out, home, probe);
-      case "start": case "restart": return await startOrRestart(o, ctx, manager, out, home, waitReady);
-      case "stop": return await stop(o, ctx, manager, out, home);
-      case "logs": return await logs(o, manager, out, home, ctx.stdout ?? process.stdout);
+      case "install": code = await install(o, ctx, manager, out, home, probe, waitReady, outcome); break;
+      case "uninstall": code = uninstall(manager, out, home, outcome); break;
+      case "start": case "restart": code = await startOrRestart(o, ctx, manager, out, home, waitReady, outcome); break;
+      case "stop": code = await stop(o, ctx, manager, out, home, outcome); break;
     }
   } catch (err) {
     if (err instanceof UsageError) throw err;
     // launchctl's and systemctl's own words, as the reference reports them.
-    return out.error(err instanceof Error ? err.message : String(err));
+    outcome.error = err instanceof Error ? err.message : String(err);
+    code = out.error(outcome.error);
   }
+  if (o.json) {
+    const error = code === EXIT.OK ? undefined : outcome.error ?? (code === EXIT.BUSY ? "busy" : code === EXIT.NOT_INSTALLED ? "not installed" : "failed");
+    const { error: _, ...found } = outcome;
+    const report = withUpdate((await buildStatus(ctx, manager, home, probe)).report, home);
+    out.result({ ok: code === EXIT.OK, action: o.action, ...(error !== undefined ? { error } : {}), ...found, ...report });
+  }
+  return code;
+}
+
+/**
+ * What an action found on the way, for its --json document: `error` when it failed (the reason; "busy" and "not
+ * installed" are filled in from the exit code), and the action's own fields.
+ */
+interface Outcome {
+  error?: string;
+  /** install --dry-run: the unit it would have written. */
+  dryRun?: boolean;
+  rendered?: string;
+  /** install: the folder the service served before, when installing another folder moved it. */
+  movedFrom?: string;
+  /** uninstall: whether there was a service to remove. */
+  wasInstalled?: boolean;
+  /** start and stop: whether it was running before. */
+  wasRunning?: boolean;
+  /** restart: whether the unit was re-written first (its Node or Localidraw had gone, or an older Localidraw wrote it). */
+  rewritten?: boolean;
 }
 
 /** The service manager for this machine: launchd or systemd. Throws UnsupportedPlatformError elsewhere (Windows). */
@@ -455,7 +496,7 @@ function checkWhereFrom(o: Options, ctx: ServiceContext): string {
 }
 
 async function install(o: Options, ctx: ServiceContext, manager: ServiceManager, out: Output, home: string,
-  probe: (url: string) => Promise<HealthAnswer | undefined>, waitReady: (url: string) => Promise<"ready" | "timeout">): Promise<number> {
+  probe: (url: string) => Promise<HealthAnswer | undefined>, waitReady: (url: string) => Promise<"ready" | "timeout">, outcome: Outcome): Promise<number> {
   const existing = manager.status();
   // --refresh re-renders what's installed (SPEC §1): with nothing installed it exits 4, rather than installing from
   // defaults. `update` runs it through the new CLI, and a quiet first install would be a service nobody asked for.
@@ -466,8 +507,10 @@ async function install(o: Options, ctx: ServiceContext, manager: ServiceManager,
   const spec = buildSpec({ nodePath: ctx.nodePath, scriptPath, args: serveArgs(settings), home, ...(ctx.pathEnv !== undefined ? { pathEnv: ctx.pathEnv } : {}) });
 
   if (o.dryRun) {
-    out.say(`# ${manager.unitPath} (not written: --dry-run)`);
-    out.say(manager.platform === "darwin" ? renderPlist(LOCALIDRAW_SERVICE, spec) : renderUnit(LOCALIDRAW_SERVICE, spec));
+    const rendered = manager.platform === "darwin" ? renderPlist(LOCALIDRAW_SERVICE, spec) : renderUnit(LOCALIDRAW_SERVICE, spec);
+    out.say(`# ${manager.unitPath} (not written: --dry-run${o.json ? "; the unit is the JSON's `rendered`" : ""})`);
+    if (!o.json) out.say(rendered);
+    Object.assign(outcome, { dryRun: true, rendered });
     return EXIT.OK;
   }
 
@@ -477,13 +520,15 @@ async function install(o: Options, ctx: ServiceContext, manager: ServiceManager,
   const ours = existing.registered && existing.running && recorded.port === settings.port;
   if (!ours && (await (ctx.portTaken ?? portTaken)(probeUrl))) {
     const answer = await probe(probeUrl);
-    return out.error(answer?.ok
+    outcome.error = answer?.ok
       ? `port ${settings.port} is in use by another Localidraw${answer.version ? ` (${answer.version})` : ""}, probably a \`localidraw serve\` in a terminal. Stop it first, or give the service another --port.`
-      : `port ${settings.port} is in use by something else. Give the service another --port.`);
+      : `port ${settings.port} is in use by something else. Give the service another --port.`;
+    return out.error(outcome.error);
   }
 
   if (o.refresh) out.say(`Re-writing ${manager.unitPath}\n  Keeping: localidraw ${spec.args.join(" ")}`);
   else if (existing.registered && recorded.folder !== undefined && recorded.folder !== settings.folder) {
+    outcome.movedFrom = recorded.folder;
     out.say(`There's one Localidraw service per machine: moving it from ${recorded.folder} to ${settings.folder}.`);
   }
   out.say(manager.platform === "darwin"
@@ -502,6 +547,7 @@ async function install(o: Options, ctx: ServiceContext, manager: ServiceManager,
   const readiness = await waitReady(probeUrl);
   const linger = lingerAdvice(manager.linger(), "Localidraw");
   if (readiness !== "ready") {
+    outcome.error = `it's installed, but didn't answer at ${url}`;
     out.say(`Localidraw is installed as a ${describe(manager)}, but it didn't answer at ${url}. The last lines of its log:`);
     out.say(lastLines(spec.logPath));
     return EXIT.FAILED;
@@ -527,8 +573,9 @@ function lastLines(file: string, n = 20): string {
   }
 }
 
-function uninstall(manager: ServiceManager, out: Output, home: string): number {
+function uninstall(manager: ServiceManager, out: Output, home: string, outcome: Outcome): number {
   const existed = manager.uninstall();
+  outcome.wasInstalled = existed;
   out.say(existed
     ? `Localidraw's ${describe(manager)} is stopped and removed (${manager.unitPath}).\n  Your canvases are untouched, and the log is kept in ${join(home, "logs")}.`
     : `No Localidraw service was installed (${manager.unitPath}). Nothing to do.`);
@@ -629,12 +676,13 @@ async function status(o: Options, ctx: ServiceContext, manager: ServiceManager, 
 }
 
 async function startOrRestart(o: Options, ctx: ServiceContext, manager: ServiceManager, out: Output, home: string,
-  waitReady: (url: string) => Promise<"ready" | "timeout">): Promise<number> {
+  waitReady: (url: string) => Promise<"ready" | "timeout">, outcome: Outcome): Promise<number> {
   const state = manager.status();
   if (!state.registered) return notInstalled(manager, out);
   const s = settingsOf(state.argv);
   const probeUrl = probeUrlFor(s.host ?? DEFAULT_HOST, s.port ?? DEFAULT_PORT);
   const url = urlFor(s.host ?? DEFAULT_HOST, s.port ?? DEFAULT_PORT);
+  if (o.action === "start") outcome.wasRunning = state.running;
   if (o.action === "start" && state.running) {
     out.say(`Localidraw is already running${state.pid !== undefined ? ` (pid ${state.pid})` : ""} at ${url}`);
     return EXIT.OK;
@@ -647,6 +695,7 @@ async function startOrRestart(o: Options, ctx: ServiceContext, manager: ServiceM
     // Installing it again is a restart in both managers.
     const gone = missingPaths([state.nodePath, state.cliPath]).length > 0;
     const old = !state.keepsAlive || (state.logPath ?? serviceLogPath(home)) !== serviceLogPath(home);
+    outcome.rewritten = gone || old;
     if (gone || old) {
       const settings = resolveSettings({ ...emptyOptions("install") }, s, home);
       const scriptPath = checkWhereFrom({ ...emptyOptions("install"), fromCheckout: true }, ctx);
@@ -662,6 +711,7 @@ async function startOrRestart(o: Options, ctx: ServiceContext, manager: ServiceM
     manager.start();
   }
   if ((await waitReady(probeUrl)) !== "ready") {
+    outcome.error = `it was ${o.action === "start" ? "started" : "restarted"}, but didn't answer at ${url}`;
     out.say(`It was ${o.action === "start" ? "started" : "restarted"}, but didn't answer at ${url}. The last lines of its log:`);
     out.say(lastLines(state.logPath ?? serviceLogPath(home)));
     return EXIT.FAILED;
@@ -675,9 +725,10 @@ function emptyOptions(action: Action): Options {
   return { action, refresh: false, dryRun: false, fromCheckout: false, force: false, json: false, follow: false };
 }
 
-async function stop(o: Options, ctx: ServiceContext, manager: ServiceManager, out: Output, home: string): Promise<number> {
+async function stop(o: Options, ctx: ServiceContext, manager: ServiceManager, out: Output, home: string, outcome: Outcome): Promise<number> {
   const state = manager.status();
   if (!state.registered) return notInstalled(manager, out);
+  outcome.wasRunning = state.running;
   if (!state.running) {
     out.say(`Localidraw's service is already stopped (${manager.unitPath}).`);
     return EXIT.OK;
