@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UsageError } from "../server/contract/output.ts";
 import type { Runner } from "../server/contract/service/manager.ts";
+import { parseUnitArgv } from "../server/contract/service/systemd.ts";
 import { localFetch, parseServiceArgs, probeUrlFor, runService, serveArgs, settingsOf, urlFor, type ServiceContext } from "../server/service.ts";
 
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "localidraw-service-")));
@@ -127,8 +128,8 @@ test("install writes a unit that runs the installed CLI with serve, the folder a
   assert.equal(waited, "http://127.0.0.1:4000/");
   const unit = readFileSync(unitFile(m.homeDir), "utf8");
   const cli = join(m.pkgRoot, "dist", "server", "cli.js");
-  assert.match(unit, new RegExp(`^ExecStart=\\S+ ${cli.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} serve ${m.folder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} --port 4000 --host 127\\.0\\.0\\.1$`, "m"));
-  assert.match(unit, new RegExp(`StandardOutput=append:${join(m.homeDir, ".localidraw", "logs", "service.log").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.deepEqual(parseUnitArgv(unit).slice(1), [cli, "serve", m.folder, "--port", "4000", "--host", "127.0.0.1"]);
+  assert.ok(unit.includes(`StandardOutput=append:${join(m.homeDir, ".localidraw", "logs", "service.log")}`), unit);
   assert.match(unit, /^Restart=always$/m);
   assert.ok(existsSync(join(m.homeDir, ".localidraw", "logs")), "the log's folder is made");
   assert.ok(sd.calls.includes("systemctl --user enable --now localidraw.service"));
@@ -194,8 +195,7 @@ test("a reinstall keeps what the unit records unless told otherwise, and restart
 
 /** The arguments after Node and the script, from the unit's ExecStart. */
 function serveArgsFromUnit(homeDir: string): string[] {
-  const line = /^ExecStart=(.*)$/m.exec(readFileSync(unitFile(homeDir), "utf8"))![1];
-  return line.split(" ").slice(2);
+  return parseUnitArgv(readFileSync(unitFile(homeDir), "utf8")).slice(2);
 }
 
 test("--refresh exits 4 with nothing installed, and otherwise re-writes the unit from itself, flags still winning", async () => {
