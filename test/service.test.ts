@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { UsageError } from "../server/contract/output.ts";
 import type { Runner } from "../server/contract/service/manager.ts";
 import { parseUnitArgv } from "../server/contract/service/systemd.ts";
+import { diagnose } from "../server/doctor.ts";
 import { pkg } from "../server/package.ts";
 import { localFetch, parseServiceArgs, probeUrlFor, runService, serveArgs, settingsOf, urlFor, type ServiceContext } from "../server/service.ts";
 
@@ -176,6 +177,34 @@ test("status warns when the Node, the CLI or the folder it names has gone", asyn
   const doc = JSON.parse((await service(["status", "--json"], { ...m, run: sd.run })).stdout);
   assert.ok(doc.warnings.some((w: string) => /cli\.js, which isn't there any more/.test(w)), JSON.stringify(doc.warnings));
   assert.ok(doc.warnings.some((w: string) => /The folder it serves, .*, isn't there any more/.test(w)), JSON.stringify(doc.warnings));
+});
+
+test("status and doctor warn when the service runs another install of Localidraw than this one", async () => {
+  const m = machine();
+  const sd = fakeSystemd();
+  await service(["install", m.folder], { ...m, run: sd.run });
+  const same = JSON.parse((await service(["status", "--json"], { ...m, run: sd.run })).stdout);
+  assert.ok(!same.warnings.some((w: string) => /another install/.test(w)), JSON.stringify(same.warnings));
+
+  // The same home, asked by a second install (another prefix, another Node's).
+  const other = join(m.root, "other", "lib", "node_modules", "localidraw");
+  mkdirSync(join(other, "dist", "server"), { recursive: true });
+  writeFileSync(join(other, "package.json"), JSON.stringify({ name: "localidraw", version: "1.2.3" }));
+  writeFileSync(join(other, "dist", "server", "cli.js"), "");
+  const doc = JSON.parse((await service(["status", "--json"], { ...m, pkgRoot: other, run: sd.run })).stdout);
+  const warning = doc.warnings.find((w: string) => /another install/.test(w));
+  assert.ok(warning?.includes(join(m.pkgRoot, "dist", "server", "cli.js")) && warning.includes(join(other, "dist", "server", "cli.js")), JSON.stringify(doc.warnings));
+
+  const { checks } = await diagnose({
+    ctx: { platform: "linux", homeDir: m.homeDir, nodePath: process.execPath, pkgRoot: other, run: sd.run, fetch: (async () => { throw new Error("refused"); }) as typeof fetch },
+    version: "1.2.3", engines: undefined, entry: join(other, "dist", "server", "cli.js"), webDir: join(other, "dist", "web"), cwd: m.folder,
+    offline: true, env: {}, npmGlobalRoot: () => undefined, isListening: async () => false, maxWatches: () => undefined,
+  });
+  const unit = checks.filter((c) => c.id === "unit");
+  assert.equal(unit.length, 1, JSON.stringify(unit));
+  assert.equal(unit[0].status, "warn");
+  assert.match(unit[0].message, /another install of Localidraw/);
+  assert.match(unit[0].fix ?? "", /^`localidraw service install`, run from the install you mean/);
 });
 
 test("a reinstall keeps what the unit records unless told otherwise, and restarts a running service", async () => {

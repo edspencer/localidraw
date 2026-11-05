@@ -80,9 +80,14 @@ where a running Localidraw is listening (`serve` writes it too, in a terminal, a
 canvases are never kept there: they stay in the folder the service serves, and `install` refuses a folder inside
 `~/.localidraw`.
 
+The service appends everything Localidraw prints to that one log, and Localidraw rotates it itself: past 8 MB it's
+copied to `service.log.1` and emptied in place, keeping three old ones (`.1` to `.3`).
+
 The service runs Node and Localidraw by their full paths, so it keeps working under nvm, fnm or volta until that Node
 is removed. `service status` warns when it has been, and `service restart` writes the service again with the Node
-you're running.
+you're running. `service status` and `localidraw doctor` also warn when the service runs another install of
+Localidraw than the one you're asking (a second global install, say): run `localidraw service install` from the one
+you mean it to run.
 
 ## Hosting it as a service
 

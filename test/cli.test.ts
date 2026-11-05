@@ -416,3 +416,30 @@ test("serve writes ~/.localidraw/runtime.json, readable only by its user, and re
   assert.equal(await s.exited, 0);
   assert.ok(!existsSync(file), "removed on a clean stop");
 });
+
+test("serve rotates ~/.localidraw/logs/service.log once it's past 8 MB, and a foreground run with no log makes none", started, async () => {
+  const own = mkdtempSync(join(tmpdir(), "localidraw-cli-home-"));
+  const logs = join(own, ".localidraw", "logs");
+  try {
+    for (const big of [false, true]) {
+      if (big) {
+        mkdirSync(logs, { recursive: true });
+        writeFileSync(join(logs, "service.log"), "x".repeat(8 * 1024 * 1024 + 1));
+      }
+      const s = launch([empty, "--port", "0"], { env: { HOME: own, USERPROFILE: own } });
+      await within(new Promise<void>((ok, fail) => {
+        s.child.stdout!.on("data", () => { if (s.output().stdout.includes("watching for changes")) ok(); });
+        s.exited.then((code) => fail(new Error(`exited ${code}: ${s.output().stderr}`)), fail);
+      }), "the banner");
+      stop(s.child);
+      assert.equal(await s.exited, 0);
+      if (!big) assert.ok(!existsSync(logs), "no log folder from a foreground run");
+      else {
+        assert.equal(statSync(join(logs, "service.log")).size, 0, "truncated in place");
+        assert.equal(statSync(join(logs, "service.log.1")).size, 8 * 1024 * 1024 + 1);
+      }
+    }
+  } finally {
+    remove(own);
+  }
+});
