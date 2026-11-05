@@ -43,12 +43,13 @@ The documentation is at **https://localidraw.edspencer.net**, including
 
 ```
 localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>] [--poll [ms]]
+localidraw service install [folder] | uninstall | start | stop | restart | status [--json] | logs [-f]
 ```
 
 - `serve`: run it in the foreground. It's the default, so `localidraw ~/notes` is `localidraw serve ~/notes`.
 - `folder`: where the canvases are (default: the current folder). `node_modules` and dot-folders are skipped. Command
-  names win over folder names: a folder called `service`, `update`, `busy` or `doctor` (commands still to come) is
-  given as `./service`.
+  names win over folder names: a folder called `service`, `update`, `busy` or `doctor` (the last three still to
+  come) is given as `./service`.
 - `--port <n>`: the port (default 3729, which spells "DRAW" on a phone keypad, or `$PORT`).
 - `--open`: open it in your browser.
 
@@ -63,6 +64,17 @@ To host it (on a server, or in Docker, behind a reverse proxy):
 Ctrl-C or SIGTERM (`docker stop`, a service manager) stops it once any save under way is written, and it exits 0. It
 exits 1 when it fails (the port is in use, say), and 2 for a usage error, with the usage after the message. These
 follow the [CLI contract](https://github.com/edspencer/cli-contract) that Ed's local tools share.
+
+To keep it running in the background from login on, on macOS (launchd) or Linux (systemd), install it as a service:
+
+```sh
+npm install -g localidraw
+localidraw service install ~/notes
+```
+
+There's one service per machine, serving the folder you give it. `localidraw service status` says how it is (exit 0,
+3 for not running, 4 for not installed), and `localidraw service logs -f` follows its log, in `~/.localidraw/logs/`.
+[Running as a service](https://localidraw.edspencer.net/service/) has the rest.
 
 Localidraw has no login of its own: when you host it, authentication is the reverse proxy's job. There's a Docker
 image, `ghcr.io/edspencer/localidraw` (amd64 and arm64), and a [`compose.yaml`](compose.yaml).

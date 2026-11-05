@@ -1,19 +1,23 @@
 #!/usr/bin/env node
 // localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>…] [--poll [ms]]
+// localidraw service install | uninstall | start | stop | restart | status | logs (service.ts)
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { EXIT } from "./contract/exit-codes.ts";
 import { createOutput, exitQuietlyOnEpipe, reportUsageError, UsageError } from "./contract/output.ts";
+import { removeRuntimeFile, writeRuntimeFile } from "./contract/runtime-file.ts";
 import { DEFAULT_PORT, parsePort } from "./port.ts";
 import { listProjects } from "./files.ts";
-import { pkg, webDir } from "./package.ts";
-import { isLoopbackAddress, parseAllowedHost } from "./security.ts";
+import { localidrawHome, parseAllowedHosts, parsePoll, requireAllowedHost, safeHomeDir } from "./options.ts";
+import { pkg, pkgRoot, webDir } from "./package.ts";
+import { isLoopbackAddress } from "./security.ts";
+import { realContext, runService, SERVICE_USAGE } from "./service.ts";
 import { DEFAULT_HOST, DEFAULT_POLL, startServer } from "./server.ts";
 
 /**
- * The command names, which win over a folder of the same name (SPEC §1): that folder is given as `./service`. Only
- * `serve` is here yet; the rest are reserved now, so a folder called `busy` doesn't change meaning when `busy` comes.
+ * The command names, which win over a folder of the same name (SPEC §1): that folder is given as `./service`.
+ * `update`, `busy` and `doctor` are reserved now, so a folder called `busy` doesn't change meaning when `busy` comes.
  */
 const COMMANDS = ["serve", "service", "update", "upgrade", "busy", "doctor"];
 
@@ -21,6 +25,7 @@ const COMMANDS = ["serve", "service", "update", "upgrade", "busy", "doctor"];
 const DRAIN_MS = 5000;
 
 const USAGE = `Usage: localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>…] [--poll [ms]]
+       localidraw service install | uninstall | start | stop | restart | status | logs   (localidraw service --help)
        localidraw --help | --version
 `;
 
@@ -33,7 +38,9 @@ Usage: localidraw [serve] [folder] [options]
   folder            where the canvases are (default: the current folder). Each folder under it that
                     holds .excalidraw files is a project; node_modules and dot-folders are skipped. A
                     folder named like a command (serve, service, update, busy, doctor) is given as
-                    ./service. service, update, busy and doctor are coming in later versions.
+                    ./service. update, busy and doctor are coming in later versions.
+  service <command> run it in the background from login on, serving one folder: install, uninstall,
+                    start, stop, restart, status and logs. See \`localidraw service --help\`.
 
 Options:
   --port <n>        the port (default ${DEFAULT_PORT}, or $PORT)
@@ -52,7 +59,7 @@ Hosting it (see https://localidraw.edspencer.net/self-hosting/):
                     (or $LOCALIDRAW_POLL: the ms, or true)
 
 Ctrl-C or SIGTERM stops it once the saves under way are written, and it exits 0. It exits 1 if it fails (the
-port is in use, say), and 2 for a usage error.
+port is in use, say), and 2 for a usage error. While it runs, ~/.localidraw/runtime.json says where.
 
 By default it listens on 127.0.0.1 only, and it saves to the files as you draw. It has no login of its own: when
 you host it, put it behind a reverse proxy that does authentication.
@@ -90,6 +97,15 @@ async function main(args: string[]): Promise<number | undefined> {
     else if (a.startsWith("-")) throw new UsageError(`unknown option ${a}`);
     else if (command === undefined && folder === undefined && COMMANDS.includes(a)) {
       command = a;
+      if (command === "service") {
+        if (i > 0) throw new UsageError("`service` comes first: localidraw service <command> [options]");
+        try {
+          return await runService(args.slice(1), realContext(pkgRoot, safeHomeDir()));
+        } catch (err) {
+          if (err instanceof UsageError) { usage = SERVICE_USAGE; }
+          throw err;
+        }
+      }
       if (command !== "serve") {
         throw new UsageError(`\`localidraw ${command}\` is coming in a later version. To serve a folder called ${command}, give it as ./${command}`);
       }
@@ -111,28 +127,9 @@ async function main(args: string[]): Promise<number | undefined> {
   // A flag wins over its environment variable; --allowed-host flags replace $LOCALIDRAW_ALLOWED_HOSTS, not add to it.
   const env = (name: string) => process.env[name]?.trim() || undefined;
   const host = hostArg?.trim() || env("LOCALIDRAW_HOST") || DEFAULT_HOST;
-  const allowedHosts = (allowedArgs ?? env("LOCALIDRAW_ALLOWED_HOSTS")?.split(",") ?? [])
-    .map((h) => h.trim())
-    .filter(Boolean)
-    .map((h) => {
-      const parsed = parseAllowedHost(h);
-      if (!parsed) throw new UsageError(`not a host name: ${h} (give the name alone, without http:// or a port)`);
-      return parsed;
-    });
-  if (!isLoopbackAddress(host) && allowedHosts.length === 0) {
-    throw new UsageError(`refusing to listen on ${host} without an allowed host name.
-  Anyone who can reach that address could read and change your canvases, and Localidraw has no login.
-  Name the host it's reached by, e.g. --allowed-host draw.example.com (or LOCALIDRAW_ALLOWED_HOSTS), and put it
-  behind a reverse proxy that does authentication.`);
-  }
-  const pollValue = pollArg ?? env("LOCALIDRAW_POLL");
-  let poll: number | undefined;
-  if (pollValue !== undefined && !/^(false|off|no|0)$/i.test(pollValue)) {
-    if (/^(true|on|yes)$/i.test(pollValue)) poll = DEFAULT_POLL;
-    else if (/^\d+$/.test(pollValue)) poll = Number(pollValue);
-    else throw new UsageError(`--poll takes a number of milliseconds, not ${pollValue}`);
-    if (poll < 100) throw new UsageError(`--poll ${poll} is too often; give at least 100 ms`);
-  }
+  const allowedHosts = parseAllowedHosts(allowedArgs ?? env("LOCALIDRAW_ALLOWED_HOSTS")?.split(",") ?? []);
+  requireAllowedHost(host, allowedHosts);
+  const poll = parsePoll(pollArg ?? env("LOCALIDRAW_POLL"));
 
   if (!existsSync(resolve(webDir, "index.html"))) return out.error("the page isn't built; run `npm run build` in the localidraw checkout");
 
@@ -144,6 +141,16 @@ async function main(args: string[]): Promise<number | undefined> {
     throw err;
   }
   const { url, drain } = running;
+  // ~/.localidraw/runtime.json (SPEC §4): how `localidraw busy` and `update` find this instance. 0600, written once
+  // it's listening, and removed on a clean stop if it still names this process. Not being able to write it doesn't
+  // stop it serving.
+  const home = localidrawHome();
+  try {
+    writeRuntimeFile(home, { pid: process.pid, port: Number(new URL(url).port), url, version: pkg.version });
+  } catch (err) {
+    out.warn(`localidraw: couldn't write ${home}/runtime.json (${(err as Error).message}); serving anyway.`);
+  }
+  process.on("exit", () => { try { removeRuntimeFile(home); } catch { /* it's going anyway */ } });
   // Ctrl-C and SIGTERM (a service manager, `docker stop`) stop it once the requests under way are answered, so a save
   // is never cut off half-written. A save that comes after is refused (503), and the page says "Not saved" and keeps
   // the drawing. A second one stops it at once.
@@ -192,10 +199,13 @@ async function main(args: string[]): Promise<number | undefined> {
   return undefined;
 }
 
+/** The usage printed after a usage error: `service`'s own, once the command is `service`. */
+let usage = USAGE;
+
 try {
   const code = await main(process.argv.slice(2));
   if (code !== undefined) process.exitCode = code;
 } catch (err) {
   if (!(err instanceof UsageError)) throw err;
-  process.exitCode = reportUsageError(out, err, USAGE);
+  process.exitCode = reportUsageError(out, err, usage);
 }

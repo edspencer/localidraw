@@ -3,7 +3,7 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +11,17 @@ import { contentHash } from "../server/files.ts";
 
 const CLI = join(import.meta.dirname, "../server/cli.ts");
 const TSX = import.meta.resolve("tsx"); // as a URL, so the CLI can run from another folder
-const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("LOCALIDRAW_") && k !== "PORT"));
+/**
+ * A throwaway home: `serve` writes ~/.localidraw/runtime.json, and `service` looks for a unit under it, so neither
+ * may see the real one.
+ */
+const home = mkdtempSync(join(tmpdir(), "localidraw-cli-home-"));
+after(() => rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+const clean = {
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("LOCALIDRAW_") && k !== "PORT" && k !== "XDG_CONFIG_HOME")),
+  HOME: home,
+  USERPROFILE: home,
+};
 const run = (args: string[], env: Record<string, string> = {}) =>
   spawnSync(process.execPath, ["--import", TSX, CLI, ...args], { encoding: "utf8", env: { ...clean, ...env }, timeout: 30_000 });
 
@@ -109,7 +119,7 @@ test("--version is bare, and --help exits 0 with the commands, the options and t
 });
 
 test("the commands still to come are reserved: they exit 2 and say how to serve a folder of that name", () => {
-  for (const command of ["service", "update", "upgrade", "busy", "doctor"]) {
+  for (const command of ["update", "upgrade", "busy", "doctor"]) {
     const r = run([command, "--help"]);
     assert.equal(r.status, 2, command);
     assert.match(r.stderr, new RegExp(`^localidraw: \`localidraw ${command}\` is coming in a later version. To serve a folder called ${command}, give it as \\./${command}\n`));
@@ -274,4 +284,53 @@ test("the environment sets them too, and a flag wins over its variable", started
   assert.match(flagged, /every 250 ms/);
   assert.match(await startup([], { LOCALIDRAW_POLL: "true" }), /every 2000 ms/);
   assert.match(await startup([], { LOCALIDRAW_POLL: "false" }), /by file events/);
+});
+
+test("service status exits 4 with nothing installed, and --json prints one document and no prose", () => {
+  const r = run(["service", "status"]);
+  if (process.platform === "win32") {
+    assert.equal(r.status, 4);
+    assert.match(r.stdout, /isn't installed as a service: .*not win32 yet/);
+    assert.equal(run(["service", "install", empty]).status, 1, "nothing else is supported on Windows yet");
+    return;
+  }
+  assert.equal(r.status, 4, r.stderr);
+  assert.match(r.stdout, /isn't installed as a service/);
+  const j = run(["service", "status", "--json"]);
+  assert.equal(j.status, 4);
+  assert.equal(j.stderr, "");
+  const doc = JSON.parse(j.stdout);
+  assert.equal(doc.installed, false);
+  assert.ok(doc.unit.startsWith(home), `the unit is looked for under HOME: ${doc.unit}`);
+});
+
+test("service usage errors exit 2 with service's usage; service --help exits 0", () => {
+  for (const args of [["service"], ["service", "status", "--force"], ["--port", "1", "service", "status"], ["service", "logs", "-n", "x"]]) {
+    const r = run(args);
+    assert.equal(r.status, 2, JSON.stringify(args));
+    assert.equal(r.stdout, "");
+    assert.match(r.stderr, /^localidraw: /);
+    assert.match(r.stderr, /\nUsage: localidraw (service install|\[serve\])/, JSON.stringify(args));
+  }
+  const help = run(["service", "--help"]);
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /^localidraw service: /);
+  assert.match(help.stdout, /install \[folder\]/);
+  assert.match(run(["--help"]).stdout, /service <command>/);
+});
+
+test("serve writes ~/.localidraw/runtime.json, readable only by its user, and removes it when it stops", started, async () => {
+  const file = join(home, ".localidraw", "runtime.json");
+  const s = serve([empty, "--port", "0"]);
+  const url = await s.url;
+  const info = JSON.parse(readFileSync(file, "utf8"));
+  assert.equal(info.pid, s.child.pid);
+  assert.equal(info.url, url);
+  assert.equal(info.port, Number(new URL(url).port));
+  assert.equal(info.version, JSON.parse(readFileSync(join(import.meta.dirname, "../package.json"), "utf8")).version);
+  assert.match(info.startedAt, /^\d{4}-\d\d-\d\dT/);
+  if (process.platform !== "win32") assert.equal(statSync(file).mode & 0o077, 0, "0600");
+  stop(s.child);
+  assert.equal(await s.exited, 0);
+  assert.ok(!existsSync(file), "removed on a clean stop");
 });

@@ -40,6 +40,7 @@ localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host 
 | --- | --- |
 | `serve` | Runs it in the foreground. It's the default, so `localidraw ~/notes` is the same as `localidraw serve ~/notes`. |
 | `folder` | Where the canvases are. The default is the current folder. `node_modules` and dot-folders (`.git` and the like) are skipped. A folder with a command's name (`serve`, `service`, `update`, `busy` or `doctor`) is given as `./service`: the command wins. |
+| `service <command>` | Runs it in the background from login on, serving one folder: see [Running as a service](/service/). |
 | `--port <n>` | The port. The default is <code>{DEFAULT_PORT}</code>, which spells "DRAW" on a phone keypad, or `$PORT` if that's set. |
 | `--open` | Opens it in your browser. |
 | `-v`, `--version` | Prints the version. |
@@ -74,8 +75,11 @@ again to stop at once.
 | `1` | It failed: the port is in use, the page isn't built, or a save was still under way after five seconds. |
 | `2` | A usage error: an unknown option, a bad value, or a command that isn't here yet. The usage follows the message. |
 
-These follow the [CLI contract](https://github.com/edspencer/cli-contract) that Ed's local tools share. `service`,
-`update`, `busy` and `doctor` are coming in later versions.
+These follow the [CLI contract](https://github.com/edspencer/cli-contract) that Ed's local tools share. `update`,
+`busy` and `doctor` are coming in later versions.
+
+While it runs, it writes `~/.localidraw/runtime.json`, which says where it's listening, and removes it when it stops.
+To keep it running in the background instead, see [Running as a service](/service/).
 
 ## What it remembers, and where
 
@@ -101,3 +105,4 @@ sidebar moves the file into `.localidraw/trash/` in the folder.
 - [The Library](/library/): reusable shapes, in the browser or shared in the folder.
 - [Saving and merging](/saving-and-merging/): what happens when a file changes on disk.
 - [Working with coding agents](/agents/): how an agent should edit a canvas.
+- [Running as a service](/service/): keeping it running in the background, from login on.

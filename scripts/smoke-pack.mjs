@@ -1,7 +1,7 @@
 // Packs the package, installs the tarball into a temporary prefix, starts the installed CLI on a temporary folder
 // and checks that it serves the page, the projects and a canvas, as a user's `npx localidraw` would. It also holds
 // the package to a size budget.
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,7 +43,13 @@ try {
   const installed = join(tmp, "prefix/node_modules/localidraw");
   const [cmd, ...cmdArgs] = windows ? [process.execPath, join(installed, JSON.parse(readFileSync(join(installed, "package.json"), "utf8")).bin.localidraw)] : [bin];
   const port = String(20000 + Math.floor(Math.random() * 20000));
-  child = spawn(cmd, [...cmdArgs, folder, "--port", port], { stdio: ["ignore", "pipe", "inherit"] });
+  // A throwaway home: serve writes ~/.localidraw/runtime.json, and service looks for its unit under it.
+  const home = join(tmp, "home");
+  mkdirSync(home);
+  const env = { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, ".config") };
+  const status = spawnSync(cmd, [...cmdArgs, "service", "status", "--json"], { env, encoding: "utf8" });
+  if (status.status !== 4 || JSON.parse(status.stdout).installed !== false) fail(`service status exited ${status.status}, not 4: ${status.stdout}${status.stderr}`);
+  child = spawn(cmd, [...cmdArgs, folder, "--port", port], { stdio: ["ignore", "pipe", "inherit"], env });
   const started = await new Promise((ok) => {
     child.stdout.on("data", (d) => { if (String(d).includes(`localhost:${port}`)) ok(true); });
     child.on("exit", () => ok(false));
@@ -61,6 +67,9 @@ try {
   }
   const health = await (await fetch(`${base}/api/health`)).json();
   if (health.ok !== true || health.version !== version) fail(`unexpected health: ${JSON.stringify(health)}`);
+  const runtime = JSON.parse(readFileSync(join(home, ".localidraw", "runtime.json"), "utf8"));
+  if (runtime.pid !== child.pid && !windows) fail(`runtime.json names pid ${runtime.pid}, not ${child.pid}`);
+  if (runtime.version !== version || runtime.port !== Number(port)) fail(`unexpected runtime.json: ${JSON.stringify(runtime)}`);
   const { projects } = await (await fetch(`${base}/api/projects`)).json();
   if (projects?.[0]?.canvases?.[0]?.path !== "project/one.excalidraw") fail(`unexpected projects: ${JSON.stringify(projects)}`);
   const canvas = await fetch(`${base}/api/canvas?path=project/one.excalidraw`);

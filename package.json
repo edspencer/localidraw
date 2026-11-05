@@ -58,7 +58,7 @@
   "devDependencies": {
     "@changesets/changelog-github": "^1.0.1",
     "@changesets/cli": "^3.0.3",
-    "@edspencer/cli-conformance": "^0.1.0",
+    "@edspencer/cli-conformance": "^0.2.0",
     "@excalidraw/excalidraw": "0.18.1",
     "@fontsource/assistant": "^5.3.0",
     "@playwright/test": "1.64.1",
