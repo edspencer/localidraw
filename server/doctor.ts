@@ -1,10 +1,10 @@
 // `localidraw doctor [--json] [--offline]` (the CLI contract's SPEC §1): one ✓ / ! / ✗ line a check, with a `fix:` line
 // under every failure, and exit 1 if any check failed (warnings don't change it).
 //
-// The spec's checks: Node against `engines`, how it was installed (§6), the unit, the running version, the port,
-// linger, the home, and a newer version. Then Localidraw's own: the page is built, the folder it serves (the
-// service's, or the current folder) is readable, and on Linux, whether the system's limit on file watches covers
-// that folder's folders, since it watches each one.
+// The spec's checks: Node against `engines`, how it was installed (§6), the unit (there, the Node and CLI it names still
+// there, and the same install as this CLI), the running version, the port, linger, the home, and a newer version.
+// Then Localidraw's own: the page is built, the folder it serves (the service's, or the current folder) is readable,
+// and on Linux, whether the system's limit on file watches covers that folder's folders, since it watches each one.
 //
 // It only reads, apart from ~/.localidraw/update-check.json: like `update --check`, it writes what it found there, so
 // `service status` can repeat it (SPEC §3). It asks the npm registry only because a person ran it; --offline doesn't.
@@ -134,7 +134,9 @@ export async function diagnose(i: DoctorInput): Promise<{ checks: Check[]; notic
     for (const w of warnings) {
       add(/isn't there any more/.test(w)
         ? { id: "unit", status: "fail", message: w, fix: /folder it serves/.test(w) ? "`localidraw service install <folder>`" : "`localidraw service restart` (it keeps the folder, port and host)" }
-        : { id: "unit", status: "warn", message: w, fix: "`localidraw service restart`" });
+        : /another install of Localidraw/.test(w)
+          ? { id: "unit", status: "warn", message: w, fix: "`localidraw service install`, run from the install you mean the service to run (it keeps the folder, port and host)" }
+          : { id: "unit", status: "warn", message: w, fix: "`localidraw service restart`" });
     }
   }
 

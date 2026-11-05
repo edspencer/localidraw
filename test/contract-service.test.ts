@@ -193,6 +193,18 @@ test('neither wait is unbounded', () => {
   assert.equal(always.calls.filter((c) => c.includes('bootstrap')).length, 6);
 });
 
+test("a first install launchd refuses leaves no plist behind; a refused reinstall keeps the plist it had", () => {
+  const l = fakeLaunchd({ bootstrapFails: [112] });
+  assert.throws(() => l.m.install(spec(l.home)), /launchctl bootstrap failed \(exit 112\)/);
+  assert.equal(fs.existsSync(l.m.unitPath), false, 'status would otherwise say it is installed');
+  assert.equal(l.m.status().registered, false);
+
+  const again = fakeLaunchd({ bootstrapFails: [0, 112] });
+  again.m.install(spec(again.home));
+  assert.throws(() => again.m.install(spec(again.home, { args: ['serve', '--port', '7001'] })), /exit 112/);
+  assert.ok(fs.existsSync(again.m.unitPath), 'a reinstall keeps its plist');
+});
+
 test("launchd stop boots out and waits, doesn't touch the plist, and is fine when nothing's loaded", () => {
   const l = fakeLaunchd();
   l.m.install(spec(l.home));
@@ -259,11 +271,12 @@ test('the unit path honours XDG_CONFIG_HOME, but a home passed in beats the ambi
   }
 });
 
-function fakeSystemd(o: { active?: boolean; linger?: string } = {}) {
+function fakeSystemd(o: { active?: boolean; linger?: string; enableFails?: boolean } = {}) {
   let active = o.active ?? false;
   const f = fake((cmd, args) => {
     if (cmd === 'loginctl') return { stdout: o.linger ?? '' };
     const verb = args[1];
+    if (verb === 'enable' && o.enableFails) return { status: 1, stderr: 'Failed to enable unit: Unit file tool.service does not exist.' };
     if (verb === 'is-active') return { status: active ? 0 : 3, stdout: active ? 'active\n' : 'inactive\n' };
     if (verb === 'show') return { stdout: active ? '4242\n' : '0\n' };
     if (verb === 'enable' || verb === 'start' || verb === 'restart') active = true;
@@ -290,6 +303,20 @@ test('systemd install: reload, enable --now; and a restart only when it was alre
   ], '`enable --now` leaves an active unit running the old process');
   const st = s.m.status();
   assert.deepEqual([st.registered, st.running, st.pid, st.argv], [true, true, '4242', ['serve', '--port', '7001']]);
+});
+
+test('a first install systemd refuses leaves no unit behind; a refused reinstall keeps the unit it had', () => {
+  const s = fakeSystemd({ enableFails: true });
+  assert.throws(() => s.m.install(spec(s.home)), /systemctl --user enable --now tool.service failed \(exit 1\)/);
+  assert.equal(fs.existsSync(s.m.unitPath), false, 'status would otherwise say it is installed');
+  assert.equal(s.m.status().registered, false);
+  assert.deepEqual(s.calls.slice(-2), ['systemctl --user disable tool.service', 'systemctl --user daemon-reload']);
+
+  const again = fakeSystemd();
+  again.m.install(spec(again.home));
+  const refusing = createSystemd(ID, { run: fakeSystemd({ enableFails: true }).run, homeDir: again.home, user: 'ed' });
+  assert.throws(() => refusing.install(spec(again.home)), /exit 1/);
+  assert.ok(fs.existsSync(refusing.unitPath), 'a reinstall keeps its unit');
 });
 
 test('systemd start clears a failed state; stop and restart are the verbs; none of them disables', () => {
