@@ -214,9 +214,10 @@ export async function diagnose(i: DoctorInput): Promise<{ checks: Check[]; notic
   else if (!readable) add({ id: "inotify", status: "skip", message: "the folder can't be read, so its folders weren't counted" });
   else if (report?.installed && report.poll !== null) add({ id: "inotify", status: "pass", message: `the service checks the files every ${report.poll} ms (--poll), so it needs no file watches` });
   else {
-    const folders = countFolders(folder, max);
+    const { folders, complete } = countFolders(folder, max);
     const fix = `raise it: sudo sysctl fs.inotify.max_user_watches=524288 (and put that in /etc/sysctl.d/ to keep it), or serve with --poll`;
-    if (folders > max) add({ id: "inotify", status: "fail", message: `${t(folder)} has more than ${max} folders to watch, past the system's limit (fs.inotify.max_user_watches = ${max}): changes in some won't show`, fix });
+    if (!complete && folders <= max / 2) add({ id: "inotify", status: "skip", message: `${t(folder)} has more than ${folders} folders, too many to count quickly; the system's limit is ${max} (fs.inotify.max_user_watches)` });
+    else if (folders > max) add({ id: "inotify", status: "fail", message: `${t(folder)} has more than ${max} folders to watch, past the system's limit (fs.inotify.max_user_watches = ${max}): changes in some won't show`, fix });
     else if (folders > max / 2) add({ id: "inotify", status: "warn", message: `${t(folder)} has ${folders} folders to watch, more than half the system's limit (fs.inotify.max_user_watches = ${max}), which every program shares`, fix });
     else add({ id: "inotify", status: "pass", message: `${folders} folder${folders === 1 ? "" : "s"} to watch, well inside the limit (fs.inotify.max_user_watches = ${max})` });
   }
@@ -278,18 +279,22 @@ function writableOrCreatable(dir: string): true | "creatable" | string {
   }
 }
 
-/** The folders `serve` would watch under `root`, itself included, skipping dot-folders and node_modules; it stops counting past `limit`. */
-export function countFolders(root: string, limit: number): number {
+/**
+ * The folders `serve` would watch under `root`, itself included, skipping dot-folders and node_modules. It stops
+ * counting past `limit`, or after `budgetMs` (a home folder can hold millions), and says whether it got to the end.
+ */
+export function countFolders(root: string, limit: number, budgetMs = 3000): { folders: number; complete: boolean } {
   let n = 0;
   const stack = [resolve(root)];
-  while (stack.length && n <= limit) {
+  const until = Date.now() + budgetMs;
+  while (stack.length && n <= limit && (n % 256 !== 0 || Date.now() < until)) {
     const dir = stack.pop()!;
     n++;
     let entries: Dirent[] = [];
     try { entries = readdirSync(dir, { withFileTypes: true }); } catch {}
     for (const e of entries) if (e.isDirectory() && !e.name.startsWith(".") && !SKIPPED_DIRS.has(e.name)) stack.push(join(dir, e.name));
   }
-  return n;
+  return { folders: n, complete: stack.length === 0 };
 }
 
 function maxUserWatches(): number | undefined {
