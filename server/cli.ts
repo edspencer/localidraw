@@ -9,6 +9,8 @@ import { runBusyCommand } from "./contract/busy-client.ts";
 import { EXIT } from "./contract/exit-codes.ts";
 import { createOutput, exitQuietlyOnEpipe, reportUsageError, UsageError } from "./contract/output.ts";
 import { removeRuntimeFile, writeRuntimeFile } from "./contract/runtime-file.ts";
+import { startLogRotation } from "./contract/service/rotate.ts";
+import { serviceLogPath } from "./contract/service/spec.ts";
 import { DEFAULT_PORT, parsePort } from "./port.ts";
 import { listProjects } from "./files.ts";
 import { localidrawHome, parseAllowedHosts, parsePoll, requireAllowedHost, safeHomeDir } from "./options.ts";
@@ -164,6 +166,10 @@ async function main(args: string[]): Promise<number | undefined> {
     out.warn(`localidraw: couldn't write ${home}/runtime.json (${(err as Error).message}); serving anyway.`);
   }
   process.on("exit", () => { try { removeRuntimeFile(home); } catch { /* it's going anyway */ } });
+  // The service's log, ~/.localidraw/logs/service.log (SPEC §7): launchd or systemd appends to it and never trims it,
+  // so Localidraw rotates it itself, now and every 15 minutes, past 8 MB, keeping 3. A foreground run has no such file,
+  // and this does nothing. The timer is unref'd: it never keeps the process alive.
+  startLogRotation(serviceLogPath(home), { warn: (m) => out.warn(`localidraw: ${m}`) });
   // Ctrl-C and SIGTERM (a service manager, `docker stop`) stop it once the requests under way are answered, so a save
   // is never cut off half-written. A save that comes after is refused (503), and the page says "Not saved" and keeps
   // the drawing. A second one stops it at once.

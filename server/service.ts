@@ -17,7 +17,7 @@
 // around them and what they print. Everything that touches the machine comes in through `ServiceContext`, so the
 // whole lifecycle is tested with a fake runner on any OS (test/service.test.ts), and for real in CI
 // (scripts/service-real.mjs).
-import { existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { request } from "node:http";
 import { connect } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -489,14 +489,8 @@ async function install(o: Options, ctx: ServiceContext, manager: ServiceManager,
   out.say(manager.platform === "darwin"
     ? "Installing the LaunchAgent and starting Localidraw (macOS may take a few seconds to allow the background item)…"
     : "Installing the user service and starting Localidraw…");
-  try {
-    manager.install(spec);
-  } catch (err) {
-    // The reference writes the unit before it asks the manager to load it. A first install the manager refused (no
-    // systemd here, say) mustn't leave a unit behind, or `status` would report a service that never existed.
-    if (!existing.registered) rmSync(manager.unitPath, { force: true });
-    throw err;
-  }
+  // A first install the manager refuses leaves no unit behind: the reference removes it (test/service.test.ts).
+  manager.install(spec);
 
   const url = urlFor(settings.host, settings.port);
   const readiness = await waitReady(probeUrl);
@@ -561,6 +555,12 @@ export async function buildStatus(ctx: ServiceContext, manager: ServiceManager, 
   const gone = missingPaths([state.nodePath, state.cliPath]);
   for (const p of gone) {
     warnings.push(`The unit runs ${p}, which isn't there any more (a Node version removed by nvm, fnm or volta, or Localidraw reinstalled elsewhere). \`localidraw service restart\` re-writes it.`);
+  }
+  // SPEC §1: the unit is the same install as this CLI. Another one (a second global install, a checkout, another
+  // Node's prefix) is what the service runs, and what `update` from here wouldn't touch.
+  const thisCli = join(realpathOrSelf(ctx.pkgRoot), "dist", "server", "cli.js");
+  if (state.cliPath !== undefined && !gone.includes(state.cliPath) && realpathOrSelf(state.cliPath) !== thisCli) {
+    warnings.push(`The service runs another install of Localidraw (${state.cliPath}), not this one (${thisCli}). To run this one, \`localidraw service install\` from it; it keeps the folder, port and host.`);
   }
   // A unit an older Localidraw wrote: one that doesn't restart after a clean exit, or logs somewhere else.
   const oldFormat = !state.keepsAlive || log !== serviceLogPath(home);
