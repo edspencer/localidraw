@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>…] [--poll [ms]]
 // localidraw service install | uninstall | start | stop | restart | status | logs (service.ts)
+// localidraw busy [--json] · update [--check] [--to] [--yes] [--force] [--json] (update.ts) · doctor [--json] [--offline] (doctor.ts)
 import { spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { runBusyCommand } from "./contract/busy-client.ts";
 import { EXIT } from "./contract/exit-codes.ts";
 import { createOutput, exitQuietlyOnEpipe, reportUsageError, UsageError } from "./contract/output.ts";
 import { removeRuntimeFile, writeRuntimeFile } from "./contract/runtime-file.ts";
@@ -12,13 +14,12 @@ import { listProjects } from "./files.ts";
 import { localidrawHome, parseAllowedHosts, parsePoll, requireAllowedHost, safeHomeDir } from "./options.ts";
 import { pkg, pkgRoot, webDir } from "./package.ts";
 import { isLoopbackAddress } from "./security.ts";
-import { realContext, runService, SERVICE_USAGE } from "./service.ts";
+import { BUSY_NOUNS, localFetch, realContext, runService, SERVICE_USAGE } from "./service.ts";
 import { DEFAULT_HOST, DEFAULT_POLL, startServer } from "./server.ts";
+import { parseUpdateArgs, runUpdateCommand, UPDATE_HELP, UPDATE_USAGE } from "./update.ts";
+import { diagnose, doctorCode, DOCTOR_HELP, DOCTOR_USAGE, parseDoctorArgs, renderChecks } from "./doctor.ts";
 
-/**
- * The command names, which win over a folder of the same name (SPEC §1): that folder is given as `./service`.
- * `update`, `busy` and `doctor` are reserved now, so a folder called `busy` doesn't change meaning when `busy` comes.
- */
+/** The command names, which win over a folder of the same name (SPEC §1): that folder is given as `./service`. */
 const COMMANDS = ["serve", "service", "update", "upgrade", "busy", "doctor"];
 
 /** How long a stop waits for the requests under way before it cuts them off. */
@@ -26,7 +27,22 @@ const DRAIN_MS = 5000;
 
 const USAGE = `Usage: localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>…] [--poll [ms]]
        localidraw service install | uninstall | start | stop | restart | status | logs   (localidraw service --help)
+       localidraw busy [--json]
+       localidraw update [--check] [--to <version|tag>] [--yes] [--force] [--json]
+       localidraw doctor [--json] [--offline]
        localidraw --help | --version
+`;
+
+const BUSY_USAGE = `Usage: localidraw busy [--json]
+`;
+
+const BUSY_HELP = `localidraw busy: is the Localidraw running here in the middle of a save?
+
+${BUSY_USAGE}
+  --json            one JSON document on stdout
+
+It exits 0 when it isn't, 75 while a canvas or the Library is being written, and 3 when no Localidraw is running.
+For scripts and Watchtower, before a restart. It finds the one running here through ~/.localidraw/runtime.json.
 `;
 
 const HELP = `localidraw ${pkg.version}: a local Excalidraw for the .excalidraw files in a folder
@@ -38,9 +54,13 @@ Usage: localidraw [serve] [folder] [options]
   folder            where the canvases are (default: the current folder). Each folder under it that
                     holds .excalidraw files is a project; node_modules and dot-folders are skipped. A
                     folder named like a command (serve, service, update, busy, doctor) is given as
-                    ./service. update, busy and doctor are coming in later versions.
+                    ./service.
   service <command> run it in the background from login on, serving one folder: install, uninstall,
                     start, stop, restart, status and logs. See \`localidraw service --help\`.
+  busy [--json]     is it saving something right now? Exits 0 (no), 75 (yes) or 3 (not running).
+  update            update it, and restart the service. --check says whether there's a newer version;
+                    --to <version|tag>, --yes, --force, --json. See \`localidraw update --help\`.
+  doctor            check that it can run here, with a fix for each problem. --json, --offline.
 
 Options:
   --port <n>        the port (default ${DEFAULT_PORT}, or $PORT)
@@ -97,17 +117,10 @@ async function main(args: string[]): Promise<number | undefined> {
     else if (a.startsWith("-")) throw new UsageError(`unknown option ${a}`);
     else if (command === undefined && folder === undefined && COMMANDS.includes(a)) {
       command = a;
-      if (command === "service") {
-        if (i > 0) throw new UsageError("`service` comes first: localidraw service <command> [options]");
-        try {
-          return await runService(args.slice(1), realContext(pkgRoot, safeHomeDir()));
-        } catch (err) {
-          if (err instanceof UsageError) { usage = SERVICE_USAGE; }
-          throw err;
-        }
-      }
       if (command !== "serve") {
-        throw new UsageError(`\`localidraw ${command}\` is coming in a later version. To serve a folder called ${command}, give it as ./${command}`);
+        if (i > 0) throw new UsageError(`\`${command}\` comes first: localidraw ${command === "service" ? "service <command>" : command} [options]`);
+        usage = { service: SERVICE_USAGE, busy: BUSY_USAGE, update: UPDATE_USAGE, upgrade: UPDATE_USAGE, doctor: DOCTOR_USAGE }[command]!;
+        return await runCommand(command, args.slice(1));
       }
     }
     else if (folder === undefined) folder = a;
@@ -199,7 +212,34 @@ async function main(args: string[]): Promise<number | undefined> {
   return undefined;
 }
 
-/** The usage printed after a usage error: `service`'s own, once the command is `service`. */
+/** `service`, `busy`, `update` (and `upgrade`, its hidden alias) and `doctor`, with the arguments after the name. */
+async function runCommand(command: string, rest: string[]): Promise<number> {
+  const ctx = realContext(pkgRoot, safeHomeDir());
+  if (command === "service") return runService(rest, ctx);
+  if (command === "busy") {
+    const json = rest.includes("--json");
+    if (rest.some((a) => a === "-h" || a === "--help")) { out.say(BUSY_HELP.trimEnd()); return EXIT.OK; }
+    const extra = rest.find((a) => a !== "--json");
+    if (extra !== undefined) throw new UsageError(extra.startsWith("-") ? `unknown option ${extra}` : `\`busy\` takes no argument (got ${extra})`);
+    return runBusyCommand({ home: localidrawHome(ctx.homeDir), out: createOutput({ tool: "localidraw", json }), name: "Localidraw", nouns: BUSY_NOUNS, fetch: localFetch });
+  }
+  if (command === "update" || command === "upgrade") {
+    const opts = parseUpdateArgs(rest);
+    if (opts === "help") { out.say(UPDATE_HELP.trimEnd()); return EXIT.OK; }
+    return runUpdateCommand(opts, ctx, createOutput({ tool: "localidraw", json: opts.json === true }), process.argv[1]);
+  }
+  const opts = parseDoctorArgs(rest);
+  if (opts === "help") { out.say(DOCTOR_HELP.trimEnd()); return EXIT.OK; }
+  const manifest = JSON.parse(readFileSync(resolve(pkgRoot, "package.json"), "utf8")) as { engines?: { node?: string } };
+  const { checks, notice } = await diagnose({ ctx, version: pkg.version, engines: manifest.engines?.node, entry: process.argv[1], webDir, cwd: process.cwd(), offline: opts.offline });
+  const code = doctorCode(checks);
+  if (opts.json) process.stdout.write(`${JSON.stringify({ ok: code === 0, version: pkg.version, checks }, null, 2)}\n`);
+  else process.stdout.write(renderChecks(checks));
+  if (notice) process.stderr.write(`\n${notice}\n`);
+  return code;
+}
+
+/** The usage printed after a usage error: the command's own, once there is one. */
 let usage = USAGE;
 
 try {

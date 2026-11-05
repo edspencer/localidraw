@@ -34,12 +34,12 @@ localidraw service install --port 3740   # the same folder, on another port
 | Command | What it does |
 | --- | --- |
 | `service install [folder]` | Writes the service, starts it and waits until it answers. Takes `--port`, `--host`, `--allowed-host` and `--poll`, as `serve` does. The folder is needed the first time. |
-| `service install --refresh` | Writes the installed service again, from the settings it records. `update` will use this. |
+| `service install --refresh` | Writes the installed service again, from the settings it records. [`update`](/updating/) uses this. |
 | `service install --dry-run` | Prints the unit file it would write, and writes nothing. |
 | `service uninstall` | Stops it and removes the service. The log and your canvases stay. |
 | `service start` | Starts it, and waits until it answers. |
-| `service stop` | Stops it until `service start`, or until you next log in. It stays installed: to keep it off, `uninstall` it. |
-| `service restart` | Stops and starts it. If the Node or the Localidraw it names has gone (an nvm or fnm Node removed, say), it writes the service again first. |
+| `service stop [--force]` | Stops it until `service start`, or until you next log in. It stays installed: to keep it off, `uninstall` it. |
+| `service restart [--force]` | Stops and starts it. If the Node or the Localidraw it names has gone (an nvm or fnm Node removed, say), it writes the service again first. |
 | `service status [--json]` | Says whether it's installed, running and answering, with the folder, the port, the installed and running versions, and any warnings. |
 | `service logs [-f] [-n <lines>]` | The last 50 lines of its log, or `-n` lines. `-f` follows it. |
 
@@ -49,8 +49,9 @@ localidraw service install --port 3740   # the same folder, on another port
 
 `service status` exits `0` when the service is running and answering, `3` when it's installed but not running or not
 answering, and `4` when it isn't installed. `start`, `stop`, `restart` and `logs` exit `4` with nothing installed,
-too. A usage error exits `2`, and any other failure `1`: a port something else holds, say, or a service that didn't
-answer once started (the last lines of its log are printed then). These follow the
+too. `stop` and `restart` exit `75`, and do nothing, while a canvas is being saved (below). A usage error exits `2`,
+and any other failure `1`: a port something else holds, say, or a service that didn't answer once started (the last
+lines of its log are printed then). These follow the
 [CLI contract](https://github.com/edspencer/cli-contract) that Ed's local tools share, so a script can run
 `localidraw service status` and branch on the code:
 
@@ -105,9 +106,13 @@ Not yet. On Windows, `service status` exits `4` (nothing's installed) and the ot
 
 ## Stopping and updating
 
-`service stop` and `service restart` send SIGTERM, which lets any save under way finish writing before Localidraw
-exits, as <kbd>Ctrl</kbd>+<kbd>C</kbd> does ([Stopping it](/getting-started/#stopping-it)). A page whose save
-couldn't reach it says "Not saved", keeps the drawing, and saves it once the service is back.
+`service stop` and `service restart` first ask Localidraw whether it's in the middle of a save, as
+[`localidraw busy`](/updating/#is-it-busy) does. If it is, they say so and exit `75`, changing nothing: run them
+again in a moment, or give `--force`. Either way they send SIGTERM, which lets any save under way finish writing
+before Localidraw exits, as <kbd>Ctrl</kbd>+<kbd>C</kbd> does ([Stopping it](/getting-started/#stopping-it)). A page
+whose save couldn't reach it says "Not saved", keeps the drawing, and saves it once the service is back.
 
-After `npm install -g localidraw` installs a new version, run `localidraw service restart` to start it:
-`service status` warns when the running version isn't the installed one.
+To update, run `localidraw update`: it stops the service, installs the new version and starts it, and puts the old
+one back if the new one doesn't answer ([Updating](/updating/)). If you install a new version yourself with
+`npm install -g localidraw`, run `localidraw service restart` to start it: `service status` warns when the running
+version isn't the installed one.

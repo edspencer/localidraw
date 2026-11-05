@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { UsageError } from "../server/contract/output.ts";
 import type { Runner } from "../server/contract/service/manager.ts";
 import { parseUnitArgv } from "../server/contract/service/systemd.ts";
+import { pkg } from "../server/package.ts";
 import { localFetch, parseServiceArgs, probeUrlFor, runService, serveArgs, settingsOf, urlFor, type ServiceContext } from "../server/service.ts";
 
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "localidraw-service-")));
@@ -72,6 +73,7 @@ async function service(args: string[], ctx: Partial<ServiceContext> & { homeDir:
     waitReady: async () => "ready",
     probe: async () => undefined,
     portTaken: async () => false,
+    fetch: (async () => { throw new Error("connection refused"); }) as typeof fetch, // nothing answers /api/busy
     sleep: () => {},
     stdout: { write: (s: string) => (stdout += s) },
     stderr: { write: (s: string) => (stderr += s) },
@@ -329,6 +331,75 @@ test("stop stops without disabling; start and restart wait for it; each exits 4 
   const late = await service(["start"], { ...m, run: sd.run, waitReady: async () => "timeout" });
   assert.equal(late.code, 1);
   assert.match(late.stdout, /didn't answer/);
+});
+
+/** A fake `/api/busy`, recording what it was asked. */
+function busyAnswer(counts: Record<string, number>) {
+  const asked: string[] = [];
+  const fetch = (async (url: string | URL) => {
+    asked.push(String(url));
+    const busy = Object.values(counts).some((n) => n > 0);
+    return new Response(JSON.stringify({ busy, version: "1.2.3", counts }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  return { fetch, asked };
+}
+
+test("stop and restart refuse with 75 while a save is being written, asking the unit's own port; --force goes ahead", async () => {
+  const m = machine();
+  const sd = fakeSystemd();
+  await service(["install", m.folder, "--port", "4006"], { ...m, run: sd.run });
+  const busy = busyAnswer({ canvas: 1, library: 0 });
+  for (const a of ["stop", "restart"]) {
+    sd.calls.length = 0;
+    const r = await service([a], { ...m, run: sd.run, fetch: busy.fetch });
+    assert.equal(r.code, 75, a);
+    assert.equal(r.stderr, "localidraw: Localidraw is busy: 1 canvas save is running. Try again in a moment, once it's written, or use --force.\n", a);
+    assert.ok(!sd.calls.some((c) => / (stop|restart) /.test(c)), `${a} asked systemctl nothing that stops it: ${sd.calls.join("; ")}`);
+  }
+  assert.deepEqual(busy.asked, ["http://127.0.0.1:4006/api/busy", "http://127.0.0.1:4006/api/busy"]);
+
+  const both = busyAnswer({ canvas: 2, library: 1 });
+  const forced = await service(["restart", "--force"], { ...m, run: sd.run, fetch: both.fetch });
+  assert.equal(forced.code, 0, forced.stderr);
+  assert.match(forced.stderr, /^Overriding: Localidraw is busy: 2 canvas saves and 1 Library save are running\.\n/);
+  assert.ok(sd.calls.includes("systemctl --user restart localidraw.service"));
+  const stopped = await service(["stop", "--force"], { ...m, run: sd.run, fetch: busy.fetch });
+  assert.equal(stopped.code, 0);
+  assert.ok(sd.calls.includes("systemctl --user stop localidraw.service"));
+
+  // Idle, or an older Localidraw with no /api/busy (404), goes ahead without a word.
+  await service(["start"], { ...m, run: sd.run });
+  const idle = await service(["stop"], { ...m, run: sd.run, fetch: busyAnswer({ canvas: 0, library: 0 }).fetch });
+  assert.equal(idle.code, 0);
+  assert.equal(idle.stderr, "");
+  await service(["start"], { ...m, run: sd.run });
+  const old = await service(["restart"], { ...m, run: sd.run, fetch: (async () => new Response("{}", { status: 404 })) as typeof fetch });
+  assert.equal(old.code, 0, old.stderr);
+});
+
+test("status repeats the last update check, in its JSON and on stderr, and never a check about another version", async () => {
+  const m = machine();
+  const sd = fakeSystemd();
+  const home = join(m.homeDir, ".localidraw");
+  mkdirSync(home, { recursive: true });
+  const check = (current: string) => writeFileSync(join(home, "update-check.json"), JSON.stringify({
+    name: "localidraw", current, target: "99.0.0", tag: "latest", updateAvailable: true, installMethod: "npm-global", canUpdate: true,
+    command: "localidraw update", engines: ">=22", nodeOk: true, changelog: "https://github.com/edspencer/localidraw/releases/tag/v99.0.0", checkedAt: new Date().toISOString(),
+  }));
+  check(pkg.version);
+  const j = await service(["status", "--json"], { ...m, run: sd.run });
+  assert.equal(j.code, 4);
+  assert.deepEqual(JSON.parse(j.stdout).update, { latest: "99.0.0", updateAvailable: true, checkedAt: JSON.parse(readFileSync(join(home, "update-check.json"), "utf8")).checkedAt });
+  assert.match(j.stderr, new RegExp(`^Localidraw 99\\.0\\.0 is available \\(you have ${pkg.version.replace(/\./g, "\\.")}\\)\\.\n  Run: localidraw update\n  Changes: https://github\\.com/edspencer/localidraw/releases/tag/v99\\.0\\.0\n$`));
+  await service(["install", m.folder], { ...m, run: sd.run });
+  const prose = await service(["status"], { ...m, run: sd.run });
+  assert.match(prose.stdout, /^Localidraw is running/);
+  assert.match(prose.stderr, /Localidraw 99\.0\.0 is available/);
+
+  check("0.0.1"); // written by another version: it says nothing about this one
+  const other = await service(["status", "--json"], { ...m, run: sd.run });
+  assert.equal("update" in JSON.parse(other.stdout), false);
+  assert.equal(other.stderr, "");
 });
 
 test("restart re-writes a unit whose Node has gone", async () => {

@@ -64,6 +64,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Running as a service', slug: 'service' },
 						{ label: 'Self-hosting', slug: 'self-hosting' },
+						{ label: 'Updating', slug: 'updating' },
 					],
 				},
 				{ label: 'FAQ', slug: 'faq' },

@@ -196,6 +196,48 @@ Mount the share with a short attribute cache (`actimeo=1`, or `noac`) if other m
 `GET /api/health` answers `{ "ok": true, "version": "0.4.0" }`. It's subject to the same host check as everything
 else, so check it as `http://127.0.0.1:3729/api/health` from the machine itself.
 
+## Upgrading
+
+**With Docker**, pull the new image and start a new container from it. Nothing is installed inside a running
+container: `localidraw update` there says what to run, and exits `5`.
+
+```sh
+docker compose pull && docker compose up -d
+```
+
+Or, with `docker run`, `docker pull ghcr.io/edspencer/localidraw`, then remove the container and run it again with
+the same options. The canvases are in your folder, not the container, so nothing is lost. To see whether there's a
+newer version first:
+
+```sh
+docker exec localidraw localidraw update --check
+```
+
+**Wait for a save to finish.** `docker stop` already lets a save under way finish, and an open page saves again
+once the new container is up. To be sure, ask first: `localidraw busy` exits `75` while a canvas or the Library is
+being written, `0` when nothing is ([Is it busy?](/updating/#is-it-busy)).
+
+```sh
+docker exec localidraw localidraw busy && docker compose up -d
+```
+
+**With [Watchtower](https://containrrr.dev/watchtower/)**, which updates containers when a new image is pushed, a
+pre-update hook does the same. Turn on its lifecycle hooks (`WATCHTOWER_LIFECYCLE_HOOKS=true`, or
+`--enable-lifecycle-hooks`) and add the label to Localidraw's container. When the hook exits `75`, Watchtower skips
+the update until its next run.
+
+```yaml
+services:
+  localidraw:
+    image: ghcr.io/edspencer/localidraw:latest
+    labels:
+      com.centurylinklabs.watchtower.lifecycle.pre-update: "localidraw busy"
+    # … ports, user, environment and volumes as above
+```
+
+**Without Docker**, `localidraw update` updates a global npm install and restarts the service: see
+[Updating](/updating/).
+
 ## The limits
 
 These come from what Localidraw is, a file server for one folder, and they'll stay:
@@ -212,6 +254,6 @@ These come from what Localidraw is, a file server for one folder, and they'll st
   `--poll` there.
 - **On Linux, every folder is a file watch.** Localidraw watches each folder under the root (not dot-folders or
   `node_modules`), and the system limits how many watches a user has (`fs.inotify.max_user_watches`). In a very big
-  tree it says so at startup if it runs out; raise the limit (`sysctl fs.inotify.max_user_watches=524288`), or use
-  `--poll`.
+  tree it says so at startup if it runs out, and `localidraw doctor` counts the folders against the limit beforehand;
+  raise the limit (`sysctl fs.inotify.max_user_watches=524288`), or use `--poll`.
 - **There's no login,** and no record of who changed what. That's the proxy's job, and git's.

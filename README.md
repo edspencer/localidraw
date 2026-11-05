@@ -44,12 +44,14 @@ The documentation is at **https://localidraw.edspencer.net**, including
 ```
 localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>] [--poll [ms]]
 localidraw service install [folder] | uninstall | start | stop | restart | status [--json] | logs [-f]
+localidraw update [--check] [--to <version|tag>] [--yes] [--force] [--json]
+localidraw busy [--json]
+localidraw doctor [--json] [--offline]
 ```
 
 - `serve`: run it in the foreground. It's the default, so `localidraw ~/notes` is `localidraw serve ~/notes`.
 - `folder`: where the canvases are (default: the current folder). `node_modules` and dot-folders are skipped. Command
-  names win over folder names: a folder called `service`, `update`, `busy` or `doctor` (the last three still to
-  come) is given as `./service`.
+  names win over folder names: a folder called `service`, `update`, `busy` or `doctor` is given as `./service`.
 - `--port <n>`: the port (default 3729, which spells "DRAW" on a phone keypad, or `$PORT`).
 - `--open`: open it in your browser.
 
@@ -75,6 +77,12 @@ localidraw service install ~/notes
 There's one service per machine, serving the folder you give it. `localidraw service status` says how it is (exit 0,
 3 for not running, 4 for not installed), and `localidraw service logs -f` follows its log, in `~/.localidraw/logs/`.
 [Running as a service](https://localidraw.edspencer.net/service/) has the rest.
+
+`localidraw update` updates a global install to the latest version, restarts the service, and puts the old version
+back if the new one doesn't start (`--check` only looks). `localidraw busy` exits 75 while a canvas is being saved,
+for a script or Watchtower to wait on, and `localidraw doctor` checks that it can run here, with a fix for each
+problem. Localidraw asks the npm registry only when you run `update` or `doctor`.
+[Updating](https://localidraw.edspencer.net/updating/) has the rest.
 
 Localidraw has no login of its own: when you host it, authentication is the reverse proxy's job. There's a Docker
 image, `ghcr.io/edspencer/localidraw` (amd64 and arm64), and a [`compose.yaml`](compose.yaml).

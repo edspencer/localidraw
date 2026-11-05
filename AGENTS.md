@@ -28,17 +28,32 @@ For agents (and people) developing Localidraw itself.
   `Sec-Fetch-Site`, and writes must be `application/json` (415 otherwise). Localidraw has no login: authentication is
   the reverse proxy's job, and the docs and the startup output say so. Don't add a route around `guard`, a wildcard
   allowed host, or CORS headers.
-- **The CLI follows the [CLI contract](https://github.com/edspencer/cli-contract)** (SPEC 0.1) that Ed's local tools
-  share. `localidraw [serve] [folder]`: command names win over a folder's, which is given as `./service`, and
-  `service`, `update` (`upgrade`), `busy` and `doctor` are reserved until they land (they exit 2). Exit codes are the
-  contract's (`server/contract/exit-codes.ts`): 1 for a failure such as a port in use, 2 for a usage error with the
-  usage after the message. Set `process.exitCode` rather than calling `process.exit()`. `serve`'s first stdout line is
+- **The CLI follows the [CLI contract](https://github.com/edspencer/cli-contract)** (SPEC 0.2) that Ed's local tools
+  share. `localidraw [serve] [folder]`: command names (`serve`, `service`, `update` with its hidden alias `upgrade`,
+  `busy`, `doctor`) win over a folder's, which is given as `./service`, and each comes first. A flag a command can't
+  act on is a usage error, not dropped. Exit codes are the contract's (`server/contract/exit-codes.ts`): 1 for a
+  failure such as a port in use, 2 for a usage error with the usage after the message, 3 and 4 for not running and
+  not installed, 5 to 7 for `update`, 75 for busy. Set `process.exitCode` rather than calling `process.exit()`. `serve`'s first stdout line is
   `Localidraw <version>: <url>`, and nothing goes to stdout before it; warnings go to stderr. SIGTERM and Ctrl-C stop
   it through `drain` in `server/server.ts`, which lets the requests under way (a save mid-`writeAtomic`) finish first,
   so write before you answer: `drain` waits for each request's answer, not for work done after it. `server/contract/`
   holds copies of the contract's `reference/` files, each with its header; fix them in `edspencer/cli-contract` first,
   then copy them back.
-  `cli-contract.json` lists the conformance checks (`npx cli-conformance`, in CI), and why any are skipped.
+  `cli-contract.json` lists the conformance checks (`npx cli-conformance`, in CI), and why any are skipped; the two
+  that need a real service manager (`update-service`, `update-rollback`) run in CI's service job.
+- **Busy means a write under way, and only that.** `GET /api/busy` (`server/server.ts`) answers counts from two
+  in-memory counters, `canvas` (a save, or a new canvas, a rename, a move, a delete or a restore) and `library`, held
+  from a write request's start until it's answered. It reads nothing from disk and goes through `guard` like
+  everything else; it never carries paths or names. An open page isn't busy: it saves what's due once the server is
+  back, which `e2e/restart.spec.ts` proves by SIGTERMing the real CLI mid-save. `localidraw busy`, `service stop`,
+  `service restart` and `update` ask it (`server/contract/busy-client.ts`) with `localFetch`, which says
+  `Host: localhost`, and refuse with 75 unless `--force`.
+- **`update` and `doctor` are the contract's, with Localidraw's hooks.** `server/update.ts` gives the contract's
+  `runUpdate` (`server/contract/update.ts`) its names, the busy check and the service: stop, then hand over through
+  the new CLI's `service install --refresh`. `server/doctor.ts` has the spec's checks plus the page, the folder and
+  the inotify limit. Only `update`, `update --check` and `doctor` ask the npm registry, and only when a person runs
+  them. Their files, `update.lock` and `update-check.json`, are in `~/.localidraw` with the rest. The image sets
+  `LOCALIDRAW_IN_DOCKER=1`, so `update` there prints the pull command and exits 5.
 - **The service serves one folder, and is the contract's.** `localidraw service` (`server/service.ts`) runs the
   service managers copied from edspencer/cli-contract (`server/contract/service/`, each file headed with where it's
   from: change them there, then copy them back). There's one service per machine (`net.edspencer.localidraw` /
@@ -47,8 +62,7 @@ For agents (and people) developing Localidraw itself.
   hosting rule holds there too: `install` refuses a `--host` beyond loopback without `--allowed-host`. Its home is
   `~/.localidraw` (`localidrawHome` in `server/options.ts`): `runtime.json`, which `serve` writes 0600 once listening
   and removes on a clean stop, `logs/service.log` and `service/`. **Never drawings**: `install` refuses a folder
-  inside it. `stop` and `restart` have no busy check until `/api/busy` exists (E3, marked `TODO(E3)`), and `stop`
-  never disables. The real managers are proven only in CI (`scripts/service-real.mjs`); `test/service.test.ts` drives
+  inside it. `stop` and `restart` run the busy check, and `stop` never disables. The real managers are proven only in CI (`scripts/service-real.mjs`); `test/service.test.ts` drives
   the commands against fake ones, whose `launchctl print` must fail when nothing is loaded.
 - **The default port is one constant**, `DEFAULT_PORT` in `server/port.ts`: 3729, "DRAW" on a phone keypad (not LOCA, 5622, which is Local Review's). The
   README and the docs site (`website/src/site.mjs`) say it too; change them together (`test/docs.test.ts` checks).
@@ -102,7 +116,7 @@ its body says how each of these went.
 ## Layout
 
 - `server/`: the CLI (`cli.ts`, with the CLI contract's shared code copied into `contract/`), `service`
-  (`service.ts`), the hosting options and the home both read (`options.ts`), the HTTP server, its events and `--poll` (`server.ts`), sending the page's files
+  (`service.ts`), `update` (`update.ts`), `doctor` (`doctor.ts`), the hosting options and the home both read (`options.ts`), the HTTP server, its events and `--poll` (`server.ts`), sending the page's files
   with caching and compression (`static.ts`), the file rules (`files.ts`), `security.ts`, `port.ts` and
   `package.ts` (the version, and where the built page is). Run from source by `tsx` in tests; compiled to
   `dist/server` for the package.
@@ -118,7 +132,8 @@ its body says how each of these went.
   file rules change, change its pages too. Its sidebar is hand-maintained, and `src/site.mjs` copies `DEFAULT_PORT`.
 - `Dockerfile`, `compose.yaml` and `scripts/smoke-image.sh`: the image (`ghcr.io/edspencer/localidraw`, built and
   pushed by `release.yml`) and its check, which CI runs on every PR. The image listens on `0.0.0.0`, so it relies on
-  the allowed-hosts refusal: keep `LOCALIDRAW_HOST` there, and the refusal in the CLI.
+  the allowed-hosts refusal: keep `LOCALIDRAW_HOST` there, and the refusal in the CLI. It also sets
+  `LOCALIDRAW_IN_DOCKER=1` and puts `localidraw` on `PATH`, for `docker exec … localidraw busy` and Watchtower.
 - `test/`: `node:test` suites.
 - `e2e/`: Playwright browser tests, and the theme snapshots ([e2e/README.md](e2e/README.md)). They wait on
   `window.localidraw` (`TestHandle` in `web/CanvasView.tsx`), never on sleeps.

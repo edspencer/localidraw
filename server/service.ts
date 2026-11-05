@@ -23,6 +23,7 @@ import { connect } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { EXIT } from "./contract/exit-codes.ts";
 import { createOutput, UsageError, type Output, type OutputStream } from "./contract/output.ts";
+import { guardBusy, type Nouns } from "./contract/busy-client.ts";
 import { fetchHealth, waitForReady, type HealthAnswer } from "./contract/health.ts";
 import { isEphemeralCachePath, underNodeModules } from "./contract/install-method.ts";
 import { lingerAdvice, serviceManagerFor, UnsupportedPlatformError, type Runner, type ServiceIdentity, type ServiceManager, type ServiceState } from "./contract/service/index.ts";
@@ -31,7 +32,9 @@ import { DEFAULT_LOG_LINES, followFile, sizeOf, tailFile } from "./contract/serv
 import { missingPaths } from "./contract/service/path-env.ts";
 import { buildSpec, serviceLogPath } from "./contract/service/spec.ts";
 import { renderUnit } from "./contract/service/systemd.ts";
+import { readUpdateCheck, updateNotice, updateSummary, type UpdateSummary } from "./contract/update-check.ts";
 import { localidrawHome, parseAllowedHosts, parsePoll, requireAllowedHost } from "./options.ts";
+import { pkg } from "./package.ts";
 import { DEFAULT_PORT, parsePort } from "./port.ts";
 import { isLoopbackAddress } from "./security.ts";
 import { DEFAULT_HOST } from "./server.ts";
@@ -72,7 +75,8 @@ ${SERVICE_USAGE}
   uninstall         stop it and remove the unit. The log and your canvases stay.
   start             start it, and wait until it answers
   stop              stop it until \`service start\`, or the next login. It stays installed.
-  restart           stop and start it, re-writing the unit first if the Node or Localidraw it names has gone
+  restart           stop and start it, re-writing the unit first if the Node or Localidraw it names has gone.
+                    Both exit 75, doing nothing, while a canvas is being saved; --force stops it anyway.
   status [--json]   installed? running? answering? which version, folder and port? Exits 0, 3 (not running)
                     or 4 (not installed).
   logs [-f] [-n <lines>]
@@ -137,7 +141,8 @@ export function probeUrlFor(host: string, port: number): string {
 /**
  * A `fetch` that sends `Host: localhost`. `fetch` itself won't set a Host header, and a service bound to one LAN
  * address, asked by that address, would get the guard's 403 (the address isn't an allowed host): so its health
- * would read as "not answering" when it's up. localhost is always allowed, and this only ever asks `/api/health`.
+ * would read as "not answering" when it's up. localhost is always allowed, and this only ever asks Localidraw's own
+ * `/api/health` and `/api/busy`.
  */
 export const localFetch = ((input: string | URL, init?: { signal?: AbortSignal | null }) =>
   new Promise<Response>((ok, fail) => {
@@ -184,7 +189,12 @@ export interface ServiceContext {
   waitReady?: (url: string) => Promise<"ready" | "timeout">;
   /** Injected for tests: whether the port is held. */
   portTaken?: (url: string) => Promise<boolean>;
+  /** Injected for tests: how the busy check asks `/api/busy` (default localFetch). */
+  fetch?: typeof fetch;
 }
+
+/** What `/api/busy` counts (server.ts's BusyCounts), as the CLI says them: `Localidraw is busy: 1 canvas save is running.` */
+export const BUSY_NOUNS: Nouns = { canvas: ["canvas save", "canvas saves"], library: ["Library save", "Library saves"] };
 
 interface Options {
   action: Action;
@@ -306,6 +316,8 @@ export interface StatusReport {
   /** Linux only; null where there's no such thing, or the check couldn't answer. */
   linger: boolean | null;
   warnings: string[];
+  /** What the last `update --check` or `doctor` found (~/.localidraw/update-check.json); left out when there's nothing to repeat. */
+  update?: UpdateSummary;
 }
 
 const describe = (m: ServiceManager) => (m.platform === "darwin" ? "LaunchAgent" : "user service");
@@ -321,21 +333,16 @@ export async function runService(args: readonly string[], ctx: ServiceContext): 
 
   let manager: ServiceManager;
   try {
-    manager = serviceManagerFor(LOCALIDRAW_SERVICE, {
-      platform: ctx.platform,
-      homeDir: ctx.homeDir,
-      ...(ctx.xdgConfigHome !== undefined ? { xdgConfigHome: ctx.xdgConfigHome } : {}),
-      ...(ctx.run ? { run: ctx.run } : {}),
-      ...(ctx.sleep ? { sleep: ctx.sleep } : {}),
-    });
+    manager = managerFor(ctx);
   } catch (err) {
     if (!(err instanceof UnsupportedPlatformError)) throw err;
     // Windows (P3). `status` still answers truthfully, that nothing's installed (4), so a script can ask it anywhere;
     // everything else can't do what it was asked, and exits 1.
     if (o.action !== "status") return out.error(`${err.message.replace(/^`localidraw service`/, `\`localidraw service ${o.action}\``)} (A Windows service is planned.)`);
-    const report = emptyReport(home, null, null, [err.message]);
+    const report = withUpdate(emptyReport(home, null, null, [err.message]), home);
     out.result(report);
     if (!o.json) out.say(`Localidraw isn't installed as a service: ${err.message}`);
+    sayUpdate(out, home);
     return EXIT.NOT_INSTALLED;
   }
 
@@ -345,7 +352,7 @@ export async function runService(args: readonly string[], ctx: ServiceContext): 
       case "uninstall": return uninstall(manager, out, home);
       case "status": return await status(o, ctx, manager, out, home, probe);
       case "start": case "restart": return await startOrRestart(o, ctx, manager, out, home, waitReady);
-      case "stop": return await stop(manager, out);
+      case "stop": return await stop(o, ctx, manager, out, home);
       case "logs": return await logs(o, manager, out, home, ctx.stdout ?? process.stdout);
     }
   } catch (err) {
@@ -353,6 +360,46 @@ export async function runService(args: readonly string[], ctx: ServiceContext): 
     // launchctl's and systemctl's own words, as the reference reports them.
     return out.error(err instanceof Error ? err.message : String(err));
   }
+}
+
+/** The service manager for this machine: launchd or systemd. Throws UnsupportedPlatformError elsewhere (Windows). */
+export function managerFor(ctx: ServiceContext): ServiceManager {
+  return serviceManagerFor(LOCALIDRAW_SERVICE, {
+    platform: ctx.platform,
+    homeDir: ctx.homeDir,
+    ...(ctx.xdgConfigHome !== undefined ? { xdgConfigHome: ctx.xdgConfigHome } : {}),
+    ...(ctx.run ? { run: ctx.run } : {}),
+    ...(ctx.sleep ? { sleep: ctx.sleep } : {}),
+  });
+}
+
+/** Where the installed unit's Localidraw is asked, from the settings it records. */
+export function unitProbeUrl(argv: readonly string[]): string {
+  const s = settingsOf(argv);
+  return probeUrlFor(s.host ?? DEFAULT_HOST, s.port ?? DEFAULT_PORT);
+}
+
+/**
+ * The busy check before `stop` and `restart` (SPEC §1, §4), asking the Localidraw the unit describes: null to go ahead,
+ * or 75 having said what's under way. A save takes a moment, so trying again is the usual answer.
+ */
+function refuseIfBusy(o: Options, ctx: ServiceContext, out: Output, home: string, argv: readonly string[]): Promise<number | null> {
+  return guardBusy({ home, url: unitProbeUrl(argv), out, name: "Localidraw", nouns: BUSY_NOUNS, force: o.force, fetch: ctx.fetch ?? localFetch,
+    hint: "Try again in a moment, once it's written, or use --force." });
+}
+
+/** `status`'s report with the last update check in it, when there's one to repeat (SPEC §1: absent, never null). */
+function withUpdate(report: StatusReport, home: string): StatusReport {
+  const update = updateSummary(home, { currentVersion: pkg.version });
+  return update ? { ...report, update } : report;
+}
+
+/** Repeats the last update check's notice on stderr (SPEC §3), if it found a newer version. Never asks the registry. */
+function sayUpdate(out: Output, home: string) {
+  const summary = updateSummary(home, { currentVersion: pkg.version });
+  const check = readUpdateCheck(home);
+  if (!summary?.updateAvailable || !check) return;
+  out.warn(updateNotice({ name: "Localidraw", current: check.current, target: check.target, command: check.command ?? "localidraw update", changelog: check.changelog }));
 }
 
 function notInstalled(manager: ServiceManager, out: Output): number {
@@ -497,7 +544,7 @@ function emptyReport(home: string, unit: string | null, manager: StatusReport["m
 }
 
 /** What the unit's settings, its files and `/api/health` say, and what's wrong with them. */
-async function buildStatus(ctx: ServiceContext, manager: ServiceManager, home: string, probe: (url: string) => Promise<HealthAnswer | undefined>): Promise<{ report: StatusReport; state: ServiceState; stale: boolean }> {
+export async function buildStatus(ctx: ServiceContext, manager: ServiceManager, home: string, probe: (url: string) => Promise<HealthAnswer | undefined>): Promise<{ report: StatusReport; state: ServiceState; stale: boolean }> {
   const state = manager.status();
   const kind = manager.platform === "darwin" ? "launchd" : "systemd";
   const lingerState = manager.linger();
@@ -553,11 +600,11 @@ async function buildStatus(ctx: ServiceContext, manager: ServiceManager, home: s
 }
 
 async function status(o: Options, ctx: ServiceContext, manager: ServiceManager, out: Output, home: string, probe: (url: string) => Promise<HealthAnswer | undefined>): Promise<number> {
-  const { report } = await buildStatus(ctx, manager, home, probe);
+  const report = withUpdate((await buildStatus(ctx, manager, home, probe)).report, home);
   const code = !report.installed ? EXIT.NOT_INSTALLED : report.running && report.answering ? EXIT.OK : EXIT.NOT_RUNNING;
   out.result(report);
-  if (o.json) return code;
-  if (!report.installed) return notInstalled(manager, out);
+  if (o.json) { sayUpdate(out, home); return code; }
+  if (!report.installed) { notInstalled(manager, out); sayUpdate(out, home); return code; }
   const pid = report.pid !== null ? ` (pid ${report.pid})` : "";
   const headline = report.running
     ? report.answering ? `Localidraw is running${pid} and answering at ${report.url}` : `Localidraw is running${pid}, but ${report.url} isn't answering.`
@@ -577,6 +624,7 @@ async function status(o: Options, ctx: ServiceContext, manager: ServiceManager, 
     `  Log:     ${report.log}   (localidraw service logs -f)`,
     ...report.warnings.map((w) => `  ! ${w}`),
   ].join("\n"));
+  sayUpdate(out, home);
   return code;
 }
 
@@ -591,10 +639,10 @@ async function startOrRestart(o: Options, ctx: ServiceContext, manager: ServiceM
     out.say(`Localidraw is already running${state.pid !== undefined ? ` (pid ${state.pid})` : ""} at ${url}`);
     return EXIT.OK;
   }
-  // TODO(E3): the busy check (SPEC §1, §4) goes here for `restart`, as for `stop`: refuse with 75 unless --force.
-  // Localidraw has no /api/busy yet; E3 adds it (saves under way), with `localidraw busy`. Until then --force is
-  // accepted and changes nothing, and a SIGTERM still finishes the saves under way before it exits (cli.ts).
   if (o.action === "restart") {
+    // Not while a save is being written (SPEC §4). A SIGTERM would finish it anyway (cli.ts); this says so first.
+    const busy = await refuseIfBusy(o, ctx, out, home, state.argv);
+    if (busy !== null) return busy;
     // A unit whose Node or Localidraw has gone, or that an older Localidraw wrote, is re-written first (SPEC §1).
     // Installing it again is a restart in both managers.
     const gone = missingPaths([state.nodePath, state.cliPath]).length > 0;
@@ -627,14 +675,15 @@ function emptyOptions(action: Action): Options {
   return { action, refresh: false, dryRun: false, fromCheckout: false, force: false, json: false, follow: false };
 }
 
-async function stop(manager: ServiceManager, out: Output): Promise<number> {
+async function stop(o: Options, ctx: ServiceContext, manager: ServiceManager, out: Output, home: string): Promise<number> {
   const state = manager.status();
   if (!state.registered) return notInstalled(manager, out);
   if (!state.running) {
     out.say(`Localidraw's service is already stopped (${manager.unitPath}).`);
     return EXIT.OK;
   }
-  // TODO(E3): the busy check, as in startOrRestart: refuse with 75 while saves are under way, unless --force.
+  const busy = await refuseIfBusy(o, ctx, out, home, state.argv);
+  if (busy !== null) return busy;
   manager.stop();
   out.say("Localidraw is stopped, and still installed. It starts again when you log in, or now with: localidraw service start");
   return EXIT.OK;

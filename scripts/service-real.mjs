@@ -28,6 +28,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -181,6 +182,32 @@ try {
   assert.equal(runtime.port, port);
   assert.equal(runtime.version, version);
   assert.equal(fs.statSync(runtimeFile).mode & 0o077, 0);
+
+  step("busy: 0 against the real service, then 75 while a write is held half-sent, and stop and restart refuse");
+  assert.deepEqual(JSON.parse(expectExit(0, "busy", "--json").stdout).counts, { canvas: 0, library: 0 });
+  // A new canvas whose body is held back: the real server counts it from the request's start until it's answered.
+  // Its connection belongs to this process, but the server answering it is the service's, so a spawnSync below
+  // can't block it (a stand-in server in this process would be blocked, and read as not running).
+  const body = JSON.stringify({ path: "project/busy-check" });
+  let held;
+  const created = new Promise((ok, fail) => {
+    held = http.request({ host: "127.0.0.1", port, method: "POST", path: "/api/canvases",
+      headers: { host: `localhost:${port}`, "content-type": "application/json", "content-length": Buffer.byteLength(body) } }, (res) => { res.resume(); res.on("end", () => ok(res.statusCode)); });
+    held.on("error", fail);
+  });
+  held.write(body.slice(0, 5));
+  const busyNow = async () => (await (await fetch(`http://127.0.0.1:${port}/api/busy`)).json()).busy;
+  await until("/api/busy to count the held write", busyNow);
+  assert.match(expectExit(75, "busy").stdout, /^Localidraw is busy: 1 canvas save is running\.\n$/);
+  for (const verb of ["stop", "restart"]) {
+    assert.match(expectExit(75, "service", verb).stderr, /^localidraw: Localidraw is busy: 1 canvas save is running\. Try again/, verb);
+  }
+  assert.equal(statusJson(0).pid, s.pid, "refused: still the same process, still answering");
+  held.end(body.slice(5));
+  assert.equal(await created, 201);
+  await until("/api/busy to be idle again", async () => !(await busyNow()));
+  expectExit(0, "busy");
+  fs.rmSync(path.join(canvases, "project", "busy-check.excalidraw"));
 
   step("--dry-run prints the unit and leaves the installed one alone");
   const mtime = fs.statSync(unit).mtimeMs;
