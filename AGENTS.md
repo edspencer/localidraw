@@ -39,6 +39,17 @@ For agents (and people) developing Localidraw itself.
   holds copies of the contract's `reference/` files, each with its header; fix them in `edspencer/cli-contract` first,
   then copy them back.
   `cli-contract.json` lists the conformance checks (`npx cli-conformance`, in CI), and why any are skipped.
+- **The service serves one folder, and is the contract's.** `localidraw service` (`server/service.ts`) runs the
+  service managers copied from edspencer/cli-contract (`server/contract/service/`, each file headed with where it's
+  from: change them there, then copy them back). There's one service per machine (`net.edspencer.localidraw` /
+  `localidraw.service`), and its unit records everything it runs with as flags: `serve <folder>`, the port, the host,
+  the allowed hosts, `--poll`. Never the environment, so `install --refresh` re-renders a unit from the unit. The
+  hosting rule holds there too: `install` refuses a `--host` beyond loopback without `--allowed-host`. Its home is
+  `~/.localidraw` (`localidrawHome` in `server/options.ts`): `runtime.json`, which `serve` writes 0600 once listening
+  and removes on a clean stop, `logs/service.log` and `service/`. **Never drawings**: `install` refuses a folder
+  inside it. `stop` and `restart` have no busy check until `/api/busy` exists (E3, marked `TODO(E3)`), and `stop`
+  never disables. The real managers are proven only in CI (`scripts/service-real.mjs`); `test/service.test.ts` drives
+  the commands against fake ones, whose `launchctl print` must fail when nothing is loaded.
 - **The default port is one constant**, `DEFAULT_PORT` in `server/port.ts`: 3729, "DRAW" on a phone keypad (not LOCA, 5622, which is Local Review's). The
   README and the docs site (`website/src/site.mjs`) say it too; change them together (`test/docs.test.ts` checks).
 - **The browser keeps preferences, the files keep drawings.** Viewport, theme and sidebar state live in
@@ -90,7 +101,8 @@ its body says how each of these went.
 
 ## Layout
 
-- `server/`: the CLI (`cli.ts`, with the CLI contract's shared code copied into `contract/`), the HTTP server, its events and `--poll` (`server.ts`), sending the page's files
+- `server/`: the CLI (`cli.ts`, with the CLI contract's shared code copied into `contract/`), `service`
+  (`service.ts`), the hosting options and the home both read (`options.ts`), the HTTP server, its events and `--poll` (`server.ts`), sending the page's files
   with caching and compression (`static.ts`), the file rules (`files.ts`), `security.ts`, `port.ts` and
   `package.ts` (the version, and where the built page is). Run from source by `tsx` in tests; compiled to
   `dist/server` for the package.
@@ -131,4 +143,5 @@ docker build -t localidraw:smoke . && scripts/smoke-image.sh localidraw:smoke <v
 Run `npm test` and `npm run typecheck` before committing, and `npm run smoke:pack` when you change the build or
 `package.json` (`files`, `bin`, dependencies). Run `npm run test:e2e` when you change the page, and
 `npm run test:e2e:snapshots` when you change how it looks. Build the image and run `scripts/smoke-image.sh` when you
-change the `Dockerfile`, the CLI's options or the build.
+change the `Dockerfile`, the CLI's options or the build. `scripts/service-real.mjs` installs a real service, so it runs
+only in CI (`CI=true LOCALIDRAW_REAL_SERVICE=1`), never on your machine.

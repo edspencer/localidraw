@@ -64,9 +64,17 @@ services:
 
 ## Without Docker
 
-Localidraw is one Node process with no runtime dependencies, so a service file is enough:
+Localidraw is one Node process with no runtime dependencies. On macOS or Linux, `localidraw service` installs it as a
+user service for you ([Running as a service](/service/)):
+
+```sh
+npm install -g localidraw
+localidraw service install /srv/canvases --host 0.0.0.0 --allowed-host draw.example.com
+```
+
+Or write a service file of your own that runs
 `npx localidraw@latest /srv/canvases --allowed-host draw.example.com` (Node 22 or later). The rest of this page applies
-to either.
+to each.
 
 ## Listening beyond localhost
 
