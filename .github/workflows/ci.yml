@@ -42,6 +42,11 @@ jobs:
       # Packs the package, installs the tarball into a temp prefix and runs it as a user would (scripts/smoke-pack.mjs).
       - name: Smoke-test the npm package
         run: npm run smoke:pack
+      # The CLI contract (github.com/edspencer/cli-contract): packs it, installs it into a temp prefix, and checks
+      # --version, --help, a bad flag's exit code and usage, serve's first line and /api/health. cli-contract.json says
+      # which checks apply, and why the others don't yet.
+      - name: CLI contract conformance
+        run: npx cli-conformance
 
   # The browser tests (e2e/), the theme snapshots included. They run in the official Playwright image, whose tag
   # matches @playwright/test (test/docs.test.ts checks), so screenshots compare against baselines made in the same

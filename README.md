@@ -42,10 +42,13 @@ The documentation is at **https://localidraw.edspencer.net**, including
 ## Options
 
 ```
-localidraw [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>] [--poll [ms]]
+localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>] [--poll [ms]]
 ```
 
-- `folder`: where the canvases are (default: the current folder). `node_modules` and dot-folders are skipped.
+- `serve`: run it in the foreground. It's the default, so `localidraw ~/notes` is `localidraw serve ~/notes`.
+- `folder`: where the canvases are (default: the current folder). `node_modules` and dot-folders are skipped. Command
+  names win over folder names: a folder called `service`, `update`, `busy` or `doctor` (commands still to come) is
+  given as `./service`.
 - `--port <n>`: the port (default 3729, which spells "DRAW" on a phone keypad, or `$PORT`).
 - `--open`: open it in your browser.
 
@@ -56,6 +59,10 @@ To host it (on a server, or in Docker, behind a reverse proxy):
   or set `$LOCALIDRAW_ALLOWED_HOSTS` (comma-separated). A `--host` beyond loopback won't start without one.
 - `--poll [ms]`: find changes by checking the files every so often (default 2000 ms) rather than by file events, for
   a folder on NFS or SMB, or `$LOCALIDRAW_POLL`.
+
+Ctrl-C or SIGTERM (`docker stop`, a service manager) stops it once any save under way is written, and it exits 0. It
+exits 1 when it fails (the port is in use, say), and 2 for a usage error, with the usage after the message. These
+follow the [CLI contract](https://github.com/edspencer/cli-contract) that Ed's local tools share.
 
 Localidraw has no login of its own: when you host it, authentication is the reverse proxy's job. There's a Docker
 image, `ghcr.io/edspencer/localidraw` (amd64 and arm64), and a [`compose.yaml`](compose.yaml).

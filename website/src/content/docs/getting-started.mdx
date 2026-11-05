@@ -33,12 +33,13 @@ localidraw ~/notes
 ## Options
 
 ```
-localidraw [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>] [--poll [ms]]
+localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>] [--poll [ms]]
 ```
 
 | Option | What it does |
 | --- | --- |
-| `folder` | Where the canvases are. The default is the current folder. `node_modules` and dot-folders (`.git` and the like) are skipped. |
+| `serve` | Runs it in the foreground. It's the default, so `localidraw ~/notes` is the same as `localidraw serve ~/notes`. |
+| `folder` | Where the canvases are. The default is the current folder. `node_modules` and dot-folders (`.git` and the like) are skipped. A folder with a command's name (`serve`, `service`, `update`, `busy` or `doctor`) is given as `./service`: the command wins. |
 | `--port <n>` | The port. The default is <code>{DEFAULT_PORT}</code>, which spells "DRAW" on a phone keypad, or `$PORT` if that's set. |
 | `--open` | Opens it in your browser. |
 | `-v`, `--version` | Prints the version. |
@@ -57,6 +58,22 @@ than adding to it.
 
 If the port is taken, it says so and stops; run it with `--port` and another number. One Localidraw per folder: two
 servers on the same folder would each save without knowing about the other's page.
+
+## Stopping it
+
+Press <kbd>Ctrl</kbd>+<kbd>C</kbd>. It stops taking requests, lets any save under way finish writing (for up to five
+seconds), and exits. `docker stop` and a service manager send SIGTERM, which does the same. A save the page tries
+after that is kept on the page, which says "Not saved" until the server is back. Press <kbd>Ctrl</kbd>+<kbd>C</kbd>
+again to stop at once.
+
+| Exit code | When |
+| --- | --- |
+| `0` | It stopped on <kbd>Ctrl</kbd>+<kbd>C</kbd> or SIGTERM, or `--help` or `--version` printed. |
+| `1` | It failed: the port is in use, the page isn't built, or a save was still under way after five seconds. |
+| `2` | A usage error: an unknown option, a bad value, or a command that isn't here yet. The usage follows the message. |
+
+These follow the [CLI contract](https://github.com/edspencer/cli-contract) that Ed's local tools share. `service`,
+`update`, `busy` and `doctor` are coming in later versions.
 
 ## What it remembers, and where
 

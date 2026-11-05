@@ -491,3 +491,73 @@ test("delete moves a canvas into .localidraw/trash, and restore brings it back, 
   assert.equal((await call("POST", "/api/canvases/trash", { body: JSON.stringify({ path: "../x.excalidraw" }) })).status, 400);
   assert.equal((await call("POST", "/api/canvases/trash", { body: JSON.stringify({ path: "gone.excalidraw" }) })).status, 404);
 });
+
+/** A save whose body is held back after its first half, so it's under way until `finish()`. */
+function heldSave(to: Running, path: string, hash: string, body: string) {
+  const { port } = new URL(to.url);
+  let req!: ReturnType<typeof request>;
+  const response = new Promise<{ status: number; json: any }>((ok, fail) => {
+    req = request({ host: "127.0.0.1", port, method: "PUT", path: `/api/canvas?path=${path}`,
+      headers: { host: `localhost:${port}`, "content-type": "application/json", "content-length": Buffer.byteLength(body), "x-base-hash": hash } }, (res) => {
+      let raw = "";
+      res.on("data", (c) => (raw += c)).on("end", () => ok({ status: res.statusCode!, json: JSON.parse(raw) }));
+    });
+    req.on("error", fail);
+  });
+  const half = Math.floor(body.length / 2);
+  req.write(body.slice(0, half));
+  // Long enough for the server to have the request's headers, and be answering it, on loopback.
+  const started = new Promise((ok) => setTimeout(ok, 150));
+  return { response, started, finish: () => req.end(body.slice(half)) };
+}
+
+test("a graceful stop lets a save under way finish, refuses new connections, and doesn't wait for event streams", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "localidraw-drain-"));
+  writeFileSync(join(dir, "c.excalidraw"), scene(1));
+  const server = await startServer({ root: dir, port: 0, webDir: web });
+  try {
+    const { port } = new URL(server.url);
+    const events = new Promise<void>((ok) => {
+      const req = request({ host: "127.0.0.1", port, path: "/api/events", headers: { host: `localhost:${port}` } }, (res) => { res.resume(); res.on("end", ok); });
+      req.end();
+    });
+    const save = heldSave(server, "c.excalidraw", contentHash(scene(1)), scene(4));
+    await save.started;
+    const waiting: number[] = [];
+    let stopped: number | undefined;
+    const drained = server.drain(5000, (n) => waiting.push(n)).then((cut) => (stopped = cut));
+    await events; // the event stream is ended at once
+    assert.deepEqual(waiting, [1]);
+    await assert.rejects(call("GET", "/api/health", { to: server }), /ECONNREFUSED/);
+    assert.equal(stopped, undefined, "it waits for the save");
+    save.finish();
+    const res = await save.response;
+    assert.equal(res.status, 200);
+    assert.equal(await drained, 0);
+    assert.equal(readFileSync(join(dir, "c.excalidraw"), "utf8"), `${scene(4)}\n`);
+  } finally {
+    await server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a graceful stop with nothing under way is immediate, and one that waits too long cuts the request off", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "localidraw-drain-"));
+  writeFileSync(join(dir, "c.excalidraw"), scene(1));
+  try {
+    const idle = await startServer({ root: dir, port: 0, webDir: web });
+    assert.equal((await call("GET", "/api/health", { to: idle })).status, 200); // leaves a kept-alive connection open
+    assert.equal(await idle.drain(5000), 0);
+
+    const stuck = await startServer({ root: dir, port: 0, webDir: web });
+    const save = heldSave(stuck, "c.excalidraw", contentHash(scene(1)), scene(4));
+    await save.started;
+    const t = Date.now();
+    assert.equal(await stuck.drain(200), 1);
+    assert.ok(Date.now() - t < 2000);
+    await assert.rejects(save.response);
+    assert.equal(readFileSync(join(dir, "c.excalidraw"), "utf8"), scene(1), "the cut-off save wrote nothing");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
