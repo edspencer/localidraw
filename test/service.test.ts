@@ -278,6 +278,19 @@ test("an install that never answers exits 1 and prints the end of the log", asyn
   assert.match(r.stdout, /didn't answer at http:\/\/localhost:3729\/[^]*port 3729 is in use/);
 });
 
+test("a first install the manager refuses leaves no unit behind; a refused reinstall keeps the old one", async () => {
+  const m = machine();
+  const noSystemd: Runner = () => ({ status: null, stdout: "", stderr: "" });
+  const r = await service(["install", m.folder], { ...m, run: noSystemd });
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /systemctl isn't available/);
+  assert.ok(!existsSync(unitFile(m.homeDir)), "no unit for a service that never existed");
+  assert.equal((await service(["status"], { ...m, run: noSystemd })).code, 4);
+  await service(["install", m.folder], { ...m, run: fakeSystemd().run });
+  assert.equal((await service(["install", m.folder, "--port", "4010"], { ...m, run: noSystemd })).code, 1);
+  assert.ok(existsSync(unitFile(m.homeDir)), "a reinstall that failed leaves a unit, which status and restart can see");
+});
+
 test("--dry-run prints the unit and writes nothing", async () => {
   const m = machine();
   const sd = fakeSystemd();

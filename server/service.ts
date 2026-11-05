@@ -17,7 +17,7 @@
 // around them and what they print. Everything that touches the machine comes in through `ServiceContext`, so the
 // whole lifecycle is tested with a fake runner on any OS (test/service.test.ts), and for real in CI
 // (scripts/service-real.mjs).
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { request } from "node:http";
 import { connect } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -369,7 +369,7 @@ function resolveSettings(o: Options, recorded: Partial<Settings>, home: string):
   const folder = realpathSync(abs);
   const rel = relative(realpathOrSelf(home), folder);
   if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
-    throw new UsageError(`${folder} is inside ${home}, Localidraw's own folder (logs and runtime files). Keep your canvases somewhere else.`);
+    throw new UsageError(`${folder} is ${rel === "" ? "" : `inside ${home}, `}Localidraw's own folder (logs and runtime files). Keep your canvases somewhere else.`);
   }
   const host = o.host || recorded.host || DEFAULT_HOST;
   // New --allowed-host flags replace the recorded ones, as they replace $LOCALIDRAW_ALLOWED_HOSTS for serve.
@@ -442,7 +442,14 @@ async function install(o: Options, ctx: ServiceContext, manager: ServiceManager,
   out.say(manager.platform === "darwin"
     ? "Installing the LaunchAgent and starting Localidraw (macOS may take a few seconds to allow the background item)…"
     : "Installing the user service and starting Localidraw…");
-  manager.install(spec);
+  try {
+    manager.install(spec);
+  } catch (err) {
+    // The reference writes the unit before it asks the manager to load it. A first install the manager refused (no
+    // systemd here, say) mustn't leave a unit behind, or `status` would report a service that never existed.
+    if (!existing.registered) rmSync(manager.unitPath, { force: true });
+    throw err;
+  }
 
   const url = urlFor(settings.host, settings.port);
   const readiness = await waitReady(probeUrl);
