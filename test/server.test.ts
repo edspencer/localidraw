@@ -588,7 +588,8 @@ test("a graceful stop lets a save under way finish, refuses new connections, and
     const drained = server.drain(5000, (n) => waiting.push(n)).then((cut) => (stopped = cut));
     await events; // the event stream is ended at once
     assert.deepEqual(waiting, [1]);
-    await assert.rejects(call("GET", "/api/health", { to: server }), /ECONNREFUSED/);
+    // Not served: refused, or, when the connection raced the listener closing, hung up without an answer.
+    await assert.rejects(call("GET", "/api/health", { to: server }), /ECONNREFUSED|ECONNRESET|socket hang up/);
     assert.equal(stopped, undefined, "it waits for the save");
     save.finish();
     const res = await save.response;
