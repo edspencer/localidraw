@@ -1,5 +1,21 @@
 # localidraw
 
+## 0.8.0
+
+### Minor Changes
+
+- [#50](https://github.com/edspencer/localidraw/pull/50) [`46fcbdd`](https://github.com/edspencer/localidraw/commit/46fcbdd68377b45d97d458f5ccd2fbaf9fcfb68f) Thanks [@edspencer](https://github.com/edspencer)! - **`--json` on `service install`, `uninstall`, `start`, `stop` and `restart`**, as on `service status`: one JSON document on stdout, whatever happened, and what's said for a person on stderr. The document is what `service status --json` reports, taken afterwards, plus `ok`, `action` and, when it failed, `error` (`"busy"` for exit 75, `"not installed"` for exit 4, or the reason), and the action's own fields: `wasRunning` (start, stop), `wasInstalled` (uninstall), `rewritten` (restart), `movedFrom` (install), and `dryRun` and `rendered` (install --dry-run, whose unit is in the document rather than on stdout). The exit codes don't change. `service logs --json` is still a usage error (exit 2).
+  
+  **`localidraw serve --quiet` (`-q`)** prints only the first line, `Localidraw <version>: <url>`. Hosted (a `--host` beyond loopback), the warning that Localidraw has no login still goes out, on stderr.
+
+### Patch Changes
+
+- [#48](https://github.com/edspencer/localidraw/pull/48) [`c566b22`](https://github.com/edspencer/localidraw/commit/c566b2236350f00e3c0afebee3479b0203f4f60e) Thanks [@edspencer](https://github.com/edspencer)! - The service's log, `~/.localidraw/logs/service.log`, no longer grows for good: Localidraw rotates it itself once it's past 8 MB, copying it to `service.log.1` and emptying it in place, and keeps three old ones (`.1` to `.3`). A `localidraw` run in a terminal has no such log, and does nothing.
+  
+  `service status` and `localidraw doctor` now warn when the service runs another install of Localidraw than the one you're asking (a second global install, or another Node's): `doctor`'s `unit` check is a warning (`!`, exit code unchanged) with the fix, `localidraw service install` from the install you mean it to run.
+  
+  A first `service install` that the service manager refuses still leaves no unit behind; that's now done by the contract's reference code rather than by Localidraw.
+
 ## 0.7.0
 
 ### Minor Changes
