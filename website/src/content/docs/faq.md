@@ -19,6 +19,8 @@ files go back and forth between them. On excalidraw.com, use Open, or drag a fil
 
 No. The editor and its fonts, including the CJK handwriting font, are in the package, and it talks only to its own
 server on your machine. The Library's "Browse libraries" link goes to libraries.excalidraw.com, as it does in Excalidraw.
+And `localidraw update` and `localidraw doctor` ask the npm registry for a newer version, but only when you run them
+([Updating](/updating/)).
 
 ## Where are my preferences kept?
 

@@ -75,7 +75,8 @@ ${SERVICE_USAGE}
   uninstall         stop it and remove the unit. The log and your canvases stay.
   start             start it, and wait until it answers
   stop              stop it until \`service start\`, or the next login. It stays installed.
-  restart           stop and start it, re-writing the unit first if the Node or Localidraw it names has gone
+  restart           stop and start it, re-writing the unit first if the Node or Localidraw it names has gone.
+                    Both exit 75, doing nothing, while a canvas is being saved; --force stops it anyway.
   status [--json]   installed? running? answering? which version, folder and port? Exits 0, 3 (not running)
                     or 4 (not installed).
   logs [-f] [-n <lines>]

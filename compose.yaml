@@ -33,6 +33,10 @@ services:
         target: /canvases
         bind: { create_host_path: false }
     restart: unless-stopped
+    # With Watchtower updating it (and its lifecycle hooks on), wait until no canvas is being saved: `localidraw busy`
+    # exits 75 then, and Watchtower tries again on its next run.
+    # labels:
+    #   com.centurylinklabs.watchtower.lifecycle.pre-update: "localidraw busy"
 
 # A folder on a NAS, over NFS, as a volume (instead of the bind mount above). Then turn on LOCALIDRAW_POLL.
 #

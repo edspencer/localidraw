@@ -4,7 +4,9 @@
 #
 # It starts the image with LOCALIDRAW_ALLOWED_HOSTS, waits for its HEALTHCHECK to say healthy, then checks what it
 # serves: /api/health, the page for an allowed host, a 403 for another host, a canvas made and saved in /canvases (as
-# the node user), and a 415 for a write that isn't JSON. And that it refuses to start without allowed hosts.
+# the node user), and a 415 for a write that isn't JSON. And that it refuses to start without allowed hosts, that
+# `localidraw` is on PATH, that `localidraw busy` finds it, and that `localidraw update` prints the pull command and
+# exits 5 (against a stub registry in the container), as LOCALIDRAW_IN_DOCKER asks.
 #
 # Every request is made from inside the container (docker exec, with Node's fetch), so it works with a remote Docker
 # daemon too, where a published port or a bind mount would be on another machine.
