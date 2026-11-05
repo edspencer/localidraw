@@ -18,7 +18,18 @@ export type Options = {
   /** Look for changes by checking the files every `poll` ms, instead of by file events (for network mounts). */
   poll?: number;
 };
-export type Running = { server: Server; url: string; close: () => Promise<void> };
+export type Running = {
+  server: Server;
+  url: string;
+  /** Stops at once: every connection is dropped, a request half-answered included. */
+  close: () => Promise<void>;
+  /**
+   * Stops gracefully, for SIGTERM and Ctrl-C: it stops listening, answers 503 to any new request on a connection that's
+   * still open, ends the event streams, and waits for the requests under way (a save, mid-`writeAtomic`) to finish.
+   * Resolves with how many it had to cut off after `timeoutMs`; 0 means every one finished.
+   */
+  drain: (timeoutMs: number, waiting?: (count: number) => void) => Promise<number>;
+};
 
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_POLL = 2000;
@@ -199,8 +210,25 @@ export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHo
   const announce = (event: object) => { for (const c of clients) c.write(`data: ${JSON.stringify(event)}\n\n`); };
   const watcher = watchCanvases(root, poll, announce);
   const serveStatic = staticFiles(resolve(webDir));
+  // The requests under way, for drain(): every one but the event streams, which never finish by themselves.
+  let active = 0;
+  let draining = false;
+  let drained = () => {};
 
   const server = createServer(async (req, res) => {
+    if (draining) {
+      res.writeHead(503, { "content-type": "application/json", "cache-control": "no-store", connection: "close" });
+      return res.end(JSON.stringify({ error: "Localidraw is stopping." }));
+    }
+    active++;
+    let counted = true;
+    const finished = () => {
+      if (!counted) return;
+      counted = false;
+      active--;
+      if (draining) { server.closeIdleConnections(); if (active === 0) drained(); }
+    };
+    res.on("close", finished);
     if (!guard(req, res, allowedHosts)) return;
     // Not `new URL(req.url, base)`: a path starting `//` would be read as a host, and throw.
     let url: URL;
@@ -217,6 +245,7 @@ export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHo
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive", "x-accel-buffering": "no" });
         res.write(": connected\n\n");
         clients.add(res);
+        finished(); // an event stream is open until the page goes; it isn't a request under way
         const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
         req.on("close", () => { clearInterval(beat); clients.delete(res); });
         return;
@@ -324,7 +353,8 @@ export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHo
   });
 
   return new Promise((ok, fail) => {
-    server.once("error", fail);
+    // Not listening (the port is in use, say): stop watching too, or the watches alone would keep the process alive.
+    server.once("error", (err) => { watcher.close(); fail(err); });
     server.listen(port, host.replace(/^\[(.*)\]$/, "$1"), () => {
       const address = server.address();
       const actual = typeof address === "object" && address ? address.port : port;
@@ -341,6 +371,17 @@ export function startServer({ root, port, webDir, host = DEFAULT_HOST, allowedHo
           // A page's EventSource reconnects at once, and can do it over a kept-alive connection the server still has
           // open, which would hold close() up for good; so drop every connection rather than wait for them.
           server.closeAllConnections();
+        }),
+        drain: (timeoutMs, waiting) => new Promise((done) => {
+          draining = true;
+          watcher.close();
+          server.close();
+          for (const c of clients) c.end();
+          server.closeIdleConnections();
+          if (active === 0) return done(0);
+          waiting?.(active);
+          const timer = setTimeout(() => { const cut = active; server.closeAllConnections(); done(cut); }, timeoutMs);
+          drained = () => { clearTimeout(timer); server.closeAllConnections(); done(0); };
         }),
       });
     });

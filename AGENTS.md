@@ -28,6 +28,17 @@ For agents (and people) developing Localidraw itself.
   `Sec-Fetch-Site`, and writes must be `application/json` (415 otherwise). Localidraw has no login: authentication is
   the reverse proxy's job, and the docs and the startup output say so. Don't add a route around `guard`, a wildcard
   allowed host, or CORS headers.
+- **The CLI follows the [CLI contract](https://github.com/edspencer/cli-contract)** (SPEC 0.1) that Ed's local tools
+  share. `localidraw [serve] [folder]`: command names win over a folder's, which is given as `./service`, and
+  `service`, `update` (`upgrade`), `busy` and `doctor` are reserved until they land (they exit 2). Exit codes are the
+  contract's (`server/contract/exit-codes.ts`): 1 for a failure such as a port in use, 2 for a usage error with the
+  usage after the message. Set `process.exitCode` rather than calling `process.exit()`. `serve`'s first stdout line is
+  `Localidraw <version>: <url>`, and nothing goes to stdout before it; warnings go to stderr. SIGTERM and Ctrl-C stop
+  it through `drain` in `server/server.ts`, which lets the requests under way (a save mid-`writeAtomic`) finish first,
+  so write before you answer: `drain` waits for each request's answer, not for work done after it. `server/contract/`
+  holds copies of the contract's `reference/` files, each with its header; fix them in `edspencer/cli-contract` first,
+  then copy them back.
+  `cli-contract.json` lists the conformance checks (`npx cli-conformance`, in CI), and why any are skipped.
 - **The default port is one constant**, `DEFAULT_PORT` in `server/port.ts`: 3729, "DRAW" on a phone keypad (not LOCA, 5622, which is Local Review's). The
   README and the docs site (`website/src/site.mjs`) say it too; change them together (`test/docs.test.ts` checks).
 - **The browser keeps preferences, the files keep drawings.** Viewport, theme and sidebar state live in
@@ -79,7 +90,7 @@ its body says how each of these went.
 
 ## Layout
 
-- `server/`: the CLI (`cli.ts`), the HTTP server, its events and `--poll` (`server.ts`), sending the page's files
+- `server/`: the CLI (`cli.ts`, with the CLI contract's shared code copied into `contract/`), the HTTP server, its events and `--poll` (`server.ts`), sending the page's files
   with caching and compression (`static.ts`), the file rules (`files.ts`), `security.ts`, `port.ts` and
   `package.ts` (the version, and where the built page is). Run from source by `tsx` in tests; compiled to
   `dist/server` for the package.

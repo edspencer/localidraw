@@ -67,7 +67,8 @@ expect "a write that isn't JSON is refused" 415 '{"path":"/api/canvases","method
 [ "$(docker exec "${name}" stat -c %u /canvases/smoke/first.excalidraw)" = 1000 ] || fail "the canvas isn't owned by uid 1000"
 check "the canvas belongs to uid 1000"
 docker stop -t 5 "${name}" >/dev/null
-[ "$(docker inspect -f '{{.State.ExitCode}}' "${name}")" = 143 ] || [ "$(docker inspect -f '{{.State.ExitCode}}' "${name}")" = 0 ] \
+# SIGTERM is a clean stop: the saves under way finish, then it exits 0 (a 143 would be a death by the signal).
+[ "$(docker inspect -f '{{.State.ExitCode}}' "${name}")" = 0 ] \
   || fail "docker stop didn't stop it cleanly (exit $(docker inspect -f '{{.State.ExitCode}}' "${name}"))"
-check "stops on SIGTERM"
+check "stops on SIGTERM, with exit 0"
 check ok

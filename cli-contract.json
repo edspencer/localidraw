@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/@edspencer/cli-conformance/schemas/cli-contract.schema.json",
+  "name": "Localidraw",
+  "serve": { "args": ["serve", "{tmp}", "--port", "{port}"] },
+  "env": { "LOCALIDRAW_HOST": null, "LOCALIDRAW_ALLOWED_HOSTS": null, "LOCALIDRAW_POLL": null },
+  "checks": {
+    "version": true,
+    "help": true,
+    "unknown-flag": true,
+    "service-status": { "skip": "`localidraw service` comes in the next PR of the rollout (E2); until then it exits 2, reserved" },
+    "service-status-json": { "skip": "`localidraw service` comes in the next PR of the rollout (E2); until then it exits 2, reserved" },
+    "busy": { "skip": "`localidraw busy` comes with /api/busy (E3); until then it exits 2, reserved" },
+    "busy-json": { "skip": "`localidraw busy` comes with /api/busy (E3); until then it exits 2, reserved" },
+    "serve-banner": true,
+    "serve-health": true
+  }
+}
