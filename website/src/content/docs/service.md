@@ -45,6 +45,15 @@ localidraw service install --port 3740   # the same folder, on another port
 
 `localidraw service --help` lists them too.
 
+Every command but `logs` takes `--json`: it prints one JSON document on stdout, and what it says for a person goes to
+stderr. For `status` that's the report; for `install`, `uninstall`, `start`, `stop` and `restart` it's the same
+report, taken afterwards, plus `ok`, `action` and, when it failed, `error` (`"busy"`, `"not installed"`, or the
+reason). The exit code is the same as without it.
+
+```sh
+localidraw service stop --json | jq '{ok, error, running}'
+```
+
 ### Exit codes
 
 `service status` exits `0` when the service is running and answering, `3` when it's installed but not running or not

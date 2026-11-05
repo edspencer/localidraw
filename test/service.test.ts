@@ -496,8 +496,75 @@ test("on macOS it's a LaunchAgent: bootstrap to install and start, bootout to st
   assert.ok(ld.calls.some((c) => c.startsWith("launchctl bootstrap gui/")));
 });
 
+test("--json on install, uninstall, start, stop and restart: one document on stdout, whatever happened, prose on stderr", async () => {
+  const m = machine();
+  const sd = fakeSystemd();
+  const json = async (args: string[], extra: Partial<ServiceContext> = {}) => {
+    const r = await service([...args, "--json"], { ...m, run: sd.run, ...extra });
+    let doc;
+    assert.doesNotThrow(() => (doc = JSON.parse(r.stdout)), `${args.join(" ")}: stdout is one JSON document: ${r.stdout}`);
+    return { ...r, doc: doc as unknown as Record<string, any> };
+  };
+  // Nothing installed: start, stop and restart exit 4, and say so in the document too.
+  for (const a of ["start", "stop", "restart"]) {
+    const r = await json([a]);
+    assert.equal(r.code, 4, a);
+    assert.deepEqual([r.doc.ok, r.doc.action, r.doc.error, r.doc.installed], [false, a, "not installed", false], a);
+    assert.match(r.stderr, /isn't installed as a service/, a);
+  }
+  const dry = await json(["install", m.folder, "--dry-run"]);
+  assert.equal(dry.code, 0);
+  assert.deepEqual([dry.doc.ok, dry.doc.dryRun, dry.doc.installed], [true, true, false]);
+  assert.match(dry.doc.rendered, /^\[Unit\][^]*ExecStart=.* serve /m);
+  assert.doesNotMatch(dry.stderr, /ExecStart/, "the unit is in the document, not repeated on stderr");
+
+  const inst = await json(["install", m.folder], { probe: async () => ({ ok: true, version: "1.2.3" }) });
+  assert.equal(inst.code, 0, inst.stderr);
+  assert.deepEqual([inst.doc.ok, inst.doc.action, "error" in inst.doc, inst.doc.installed, inst.doc.running, inst.doc.answering, inst.doc.folder, inst.doc.port],
+    [true, "install", false, true, true, true, m.folder, 3729]);
+  assert.match(inst.stderr, /✓ Localidraw is installed/);
+  const other = join(m.root, "other");
+  mkdirSync(other);
+  assert.equal((await json(["install", other])).doc.movedFrom, m.folder);
+
+  const stopped = await json(["stop"]);
+  assert.deepEqual([stopped.code, stopped.doc.ok, stopped.doc.wasRunning, stopped.doc.running], [0, true, true, false]);
+  assert.equal((await json(["stop"])).doc.wasRunning, false);
+  const started = await json(["start"]);
+  assert.deepEqual([started.code, started.doc.wasRunning, started.doc.running], [0, false, true]);
+  const restarted = await json(["restart"]);
+  assert.deepEqual([restarted.code, restarted.doc.action, restarted.doc.rewritten], [0, "restart", false]);
+
+  // Busy: 75, refused, with error "busy".
+  const busyFetch = (async () => new Response(JSON.stringify({ busy: true, version: "1.2.3", counts: { canvas: 1, library: 0 } }), { headers: { "content-type": "application/json" } })) as typeof fetch;
+  const busy = await json(["stop"], { fetch: busyFetch });
+  assert.deepEqual([busy.code, busy.doc.ok, busy.doc.error, busy.doc.running], [75, false, "busy", true]);
+  assert.match(busy.stderr, /Localidraw is busy: 1 canvas save is running/);
+
+  // A start that doesn't answer: exit 1, and why.
+  sd.active = false;
+  const late = await json(["start"], { waitReady: async () => "timeout" });
+  assert.equal(late.code, 1);
+  assert.match(late.doc.error, /^it was started, but didn't answer at http:\/\/localhost:3729\//);
+
+  // A refusal the manager or the checks throw: exit 1, the message as error.
+  const checkout = machine({ pkgPath: ["src", "localidraw"] });
+  const refusedInstall = await service(["install", checkout.folder, "--json"], { ...checkout, run: fakeSystemd().run });
+  assert.equal(refusedInstall.code, 1);
+  assert.match(JSON.parse(refusedInstall.stdout).error, /is a checkout/);
+  assert.match(refusedInstall.stderr, /^localidraw: this Localidraw is a checkout/);
+
+  const gone = await json(["uninstall"]);
+  assert.deepEqual([gone.code, gone.doc.ok, gone.doc.wasInstalled, gone.doc.installed], [0, true, true, false]);
+  assert.equal((await json(["uninstall"])).doc.wasInstalled, false);
+
+  const win = await service(["stop", "--json"], { ...m, platform: "win32" });
+  assert.equal(win.code, 1);
+  assert.match(JSON.parse(win.stdout).error, /A Windows service is planned/);
+});
+
 test("each flag belongs to its commands: anything else is a usage error", () => {
-  for (const args of [[], ["frob"], ["--json"], ["status", "--force"], ["start", "--force"], ["logs", "--json"], ["install", "--json"], ["stop", "x"],
+  for (const args of [[], ["frob"], ["--json"], ["status", "--force"], ["start", "--force"], ["logs", "--json"], ["stop", "x"],
     ["install", "a", "b"], ["install", "--port", "x"], ["install", "--port", "0"], ["logs", "-n", "0"], ["status", "--json=1"], ["install", "--refresh", "--dry-run"], ["status", "--nope"]]) {
     assert.throws(() => parseServiceArgs(args), UsageError, JSON.stringify(args));
   }

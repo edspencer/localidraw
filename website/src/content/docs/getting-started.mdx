@@ -33,7 +33,7 @@ localidraw ~/notes
 ## Options
 
 ```
-localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host <name>] [--poll [ms]]
+localidraw [serve] [folder] [--port <n>] [--open] [-q] [--host <addr> --allowed-host <name>] [--poll [ms]]
 ```
 
 | Option | What it does |
@@ -46,6 +46,7 @@ localidraw [serve] [folder] [--port <n>] [--open] [--host <addr> --allowed-host 
 | `doctor` | Checks that it can run here, with a fix for anything that's wrong: see [Updating](/updating/#when-something-is-wrong-doctor). |
 | `--port <n>` | The port. The default is <code>{DEFAULT_PORT}</code>, which spells "DRAW" on a phone keypad, or `$PORT` if that's set. |
 | `--open` | Opens it in your browser. |
+| `-q`, `--quiet` | Prints only the first line, `Localidraw <version>: <url>`, for a script that wants the URL. Hosted, the warning that Localidraw has no login still goes to stderr. |
 | `-v`, `--version` | Prints the version. |
 | `-h`, `--help` | Prints the options. |
 

@@ -143,6 +143,8 @@ test("a flag belongs to its command: anything else is exit 2, with that command'
     [["doctor", "--yes"], "Usage: localidraw doctor"],
     [["serve", "--force"], "Usage: localidraw [serve]"],
     [["--open", "busy"], "Usage: localidraw [serve]"],
+    [["-q", "service", "status"], "Usage: localidraw [serve]"],
+    [["service", "logs", "--json"], "Usage: localidraw service"],
   ] as const) {
     const r = run([...args]);
     assert.equal(r.status, 2, args.join(" "));
@@ -338,6 +340,20 @@ test("hosted, it says where it listens, which names it answers to, how it watche
   assert.match(out, /answering to localhost, draw\.example, other\.example/);
   assert.match(out, /checking the files every 2000 ms/);
   assert.match(out, /has no login/);
+});
+
+test("--quiet (-q) prints only the first line; hosted, the no-login warning still goes out, on stderr", started, async () => {
+  for (const args of [["--quiet"], ["-q", "--host", "0.0.0.0", "--allowed-host", "draw.example"]]) {
+    const s = serve(["serve", empty, "--port", "0", ...args]);
+    const url = await s.url;
+    stop(s.child);
+    assert.equal(await s.exited, 0);
+    const { stdout, stderr } = s.output();
+    assert.match(stdout, /^Localidraw \S+: http:\/\/localhost:\d+\/\n$/, JSON.stringify(args));
+    assert.ok(stdout.includes(url));
+    if (args.length > 1) assert.match(stderr, /^Localidraw has no login: anyone who can reach this port/m);
+    else assert.doesNotMatch(stderr, /no login/);
+  }
 });
 
 test("the environment sets them too, and a flag wins over its variable", started, async () => {
