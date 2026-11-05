@@ -1,4 +1,4 @@
-// From edspencer/cli-contract test/service.test.ts @ 0.2; local changes: imports from server/contract/
+// From edspencer/cli-contract test/service.test.ts @ 1.0; local changes: imports from server/contract/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -355,14 +355,14 @@ test("systemctl's failures, in words a person can act on", () => {
   assert.throws(() => createSystemd(ID, { run: s.run, homeDir: tempDir() }).start(), /systemctl --user start tool\.service failed \(exit 1\): Job failed/);
 });
 
-test("linger: on, off, or unknown, and the advice only for those it's for", () => {
+test("linger: on, off, or unknown, and the advice only when it's off", () => {
   assert.deepEqual(fakeSystemd({ linger: 'Linger=yes\n' }).m.linger(), { applies: true, user: 'ed', enabled: true });
   const off = fakeSystemd({ linger: 'Linger=no\n' }).m.linger();
   assert.deepEqual(off, { applies: true, user: 'ed', enabled: false });
   const unknown = fakeSystemd({ linger: 'Could not get properties' }).m.linger();
   assert.deepEqual(unknown, { applies: true, user: 'ed' });
   assert.match(lingerAdvice(off, 'Tool')!, /^Linger is off, so the service stops when you log out, SSH sessions included\. To keep Tool running, once:\n {4}sudo loginctl enable-linger ed$/);
-  assert.match(lingerAdvice(unknown, 'Tool')!, /^Couldn't ask loginctl/);
+  assert.equal(lingerAdvice(unknown, 'Tool'), undefined);
   assert.equal(lingerAdvice({ applies: true, enabled: true }, 'Tool'), undefined);
   assert.equal(lingerAdvice({ applies: false }, 'Tool'), undefined);
 });
