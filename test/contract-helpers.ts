@@ -1,4 +1,4 @@
-// From edspencer/cli-contract test/helpers.ts @ 0.2; local changes: imports from server/contract/
+// From edspencer/cli-contract test/helpers.ts @ 1.0; local changes: imports from server/contract/
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

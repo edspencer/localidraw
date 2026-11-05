@@ -1,4 +1,4 @@
-// From edspencer/cli-contract test/install-method.test.ts @ 0.2; local changes: imports from server/contract/
+// From edspencer/cli-contract test/install-method.test.ts @ 1.0; local changes: imports from server/contract/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';

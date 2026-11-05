@@ -1,4 +1,4 @@
-// From edspencer/cli-contract reference/service/spec.ts @ 0.2; local changes: none
+// From edspencer/cli-contract reference/service/spec.ts @ 1.0; local changes: none
 // Where a service's files go, and the spec a unit is written from (SPEC §7). Pure: launchd.ts and systemd.ts render
 // what this decides, so a macOS plist can be tested on Linux. Node built-ins only.
 

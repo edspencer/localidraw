@@ -1,4 +1,4 @@
-// From edspencer/cli-contract test/busy-client.test.ts @ 0.2; local changes: imports from server/contract/
+// From edspencer/cli-contract test/busy-client.test.ts @ 1.0; local changes: imports from server/contract/
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';

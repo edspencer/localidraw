@@ -1,4 +1,4 @@
-// From edspencer/cli-contract test/runtime-file.test.ts @ 0.2; local changes: imports from server/contract/
+// From edspencer/cli-contract test/runtime-file.test.ts @ 1.0; local changes: imports from server/contract/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
