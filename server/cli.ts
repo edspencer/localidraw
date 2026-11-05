@@ -146,20 +146,29 @@ async function main(args: string[]): Promise<number | undefined> {
   const { url, drain } = running;
   // Ctrl-C and SIGTERM (a service manager, `docker stop`) stop it once the requests under way are answered, so a save
   // is never cut off half-written. A save that comes after is refused (503), and the page says "Not saved" and keeps
-  // the drawing. A second signal stops it at once.
+  // the drawing. A second one stops it at once.
   let stopping = false;
-  const stop = (signal: NodeJS.Signals) => {
+  const stop = (signal: string) => {
     if (stopping) { out.warn(`Stopping now (${signal} again).`); process.exit(EXIT.FAILED); }
     stopping = true;
     const waiting = (n: number) => out.warn(`Stopping: waiting for ${n} request${n === 1 ? "" : "s"} under way (a save, say) to finish.`);
     drain(DRAIN_MS, waiting).then((cut) => {
       process.exitCode = cut === 0 ? EXIT.OK : out.error(`stopped with ${cut} request${cut === 1 ? "" : "s"} still under way after ${DRAIN_MS / 1000} s`);
+      process.disconnect?.();
       // Everything is closed, so the process ends by itself; this is for anything that still holds it open.
       setTimeout(() => process.exit(), 1000).unref();
     });
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
+  // Windows has no SIGTERM to catch: something that stops it there sends Ctrl-C or Ctrl-Break (SIGBREAK), or, when it
+  // started Localidraw with an IPC channel (a Node parent, a test), the message "stop". The channel alone doesn't keep
+  // it running.
+  if (process.platform === "win32") process.on("SIGBREAK", stop);
+  if (process.channel) {
+    process.on("message", (m) => { if (m === "stop") stop("stop message"); });
+    process.channel.unref();
+  }
 
   const count = listProjects(root).reduce((n, p) => n + p.canvases.length, 0);
   const local = isLoopbackAddress(host);

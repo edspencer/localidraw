@@ -45,7 +45,7 @@
     "start": "npm run build && node dist/server/cli.js",
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node --import tsx --test --test-timeout=120000 test/*.test.ts",
     "test:e2e": "npm run build:web && playwright test",
     "test:e2e:snapshots": "node scripts/e2e-docker.mjs",
     "smoke:pack": "node scripts/smoke-pack.mjs",

@@ -62,7 +62,9 @@ servers on the same folder would each save without knowing about the other's pag
 ## Stopping it
 
 Press <kbd>Ctrl</kbd>+<kbd>C</kbd>. It stops taking requests, lets any save under way finish writing (for up to five
-seconds), and exits. `docker stop` and a service manager send SIGTERM, which does the same. A save the page tries
+seconds), and exits. `docker stop` and a service manager send SIGTERM, which does the same. On Windows, which has no SIGTERM,
+<kbd>Ctrl</kbd>+<kbd>Break</kbd> does too, and so does the message `"stop"` from a Node process that started it with an IPC
+channel. A save the page tries
 after that is kept on the page, which says "Not saved" until the server is back. Press <kbd>Ctrl</kbd>+<kbd>C</kbd>
 again to stop at once.
 

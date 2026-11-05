@@ -511,7 +511,7 @@ function heldSave(to: Running, path: string, hash: string, body: string) {
   return { response, started, finish: () => req.end(body.slice(half)) };
 }
 
-test("a graceful stop lets a save under way finish, refuses new connections, and doesn't wait for event streams", async () => {
+test("a graceful stop lets a save under way finish, refuses new connections, and doesn't wait for event streams", { timeout: 30_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "localidraw-drain-"));
   writeFileSync(join(dir, "c.excalidraw"), scene(1));
   const server = await startServer({ root: dir, port: 0, webDir: web });
@@ -537,11 +537,11 @@ test("a graceful stop lets a save under way finish, refuses new connections, and
     assert.equal(readFileSync(join(dir, "c.excalidraw"), "utf8"), `${scene(4)}\n`);
   } finally {
     await server.close();
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
   }
 });
 
-test("a graceful stop with nothing under way is immediate, and one that waits too long cuts the request off", async () => {
+test("a graceful stop with nothing under way is immediate, and one that waits too long cuts the request off", { timeout: 30_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "localidraw-drain-"));
   writeFileSync(join(dir, "c.excalidraw"), scene(1));
   try {
@@ -558,6 +558,6 @@ test("a graceful stop with nothing under way is immediate, and one that waits to
     await assert.rejects(save.response);
     assert.equal(readFileSync(join(dir, "c.excalidraw"), "utf8"), scene(1), "the cut-off save wrote nothing");
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
   }
 });
