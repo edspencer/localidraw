@@ -1,5 +1,11 @@
 # localidraw
 
+## 0.8.1
+
+### Patch Changes
+
+- [#52](https://github.com/edspencer/localidraw/pull/52) [`9fcdb2f`](https://github.com/edspencer/localidraw/commit/9fcdb2f0a4d8337a668f613e94baa88006725c78) Thanks [@edspencer](https://github.com/edspencer)! - `localidraw service install` no longer prints a linger line when `loginctl` can't answer; it prints the `sudo loginctl enable-linger` line only when linger is off, as CLI contract 1.0 (§7) says. `doctor` still reports that check as skipped. The copies of the contract's reference code are re-synced to 1.0.
+
 ## 0.8.0
 
 ### Minor Changes
