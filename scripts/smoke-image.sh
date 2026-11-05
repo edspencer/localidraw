@@ -66,6 +66,25 @@ expect "and listed" 200 '{"path":"/api/projects"}' '"path":"smoke/first.excalidr
 expect "a write that isn't JSON is refused" 415 '{"path":"/api/canvases","method":"POST","type":"text/plain","body":"{\"path\":\"smoke/second\"}"}'
 [ "$(docker exec "${name}" stat -c %u /canvases/smoke/first.excalidraw)" = 1000 ] || fail "the canvas isn't owned by uid 1000"
 check "the canvas belongs to uid 1000"
+# The CLI in the image (the CLI contract's SPEC §9): on PATH, for `docker exec` and Watchtower's pre-update hook.
+[ "$(docker exec "${name}" localidraw --version)" = "${version}" ] || fail "localidraw isn't on PATH, or isn't ${version}"
+check "localidraw is on PATH"
+docker exec "${name}" localidraw busy >/dev/null || fail "localidraw busy didn't exit 0 with nothing being saved (exit $?)"
+check "localidraw busy finds it, idle (exit 0)"
+# `update` in the image says how to pull the new one, and exits 5: never an npm install in a container. A stub registry
+# in the container announces 99.0.0, so this asks nothing outside it.
+docker exec -d "${name}" node -e '
+  require("node:http").createServer((q, s) => {
+    s.setHeader("content-type", "application/json");
+    s.end(JSON.stringify(q.url.includes("dist-tags") ? { latest: "99.0.0" } : { name: "localidraw", version: "99.0.0", engines: { node: ">=22" } }));
+  }).listen(4873, "127.0.0.1")'
+for _ in $(seq 1 20); do docker exec "${name}" node -e 'fetch("http://127.0.0.1:4873/").then(()=>{},()=>process.exit(1))' 2>/dev/null && break; sleep 0.5; done
+set +e
+said="$(docker exec -e npm_config_registry=http://127.0.0.1:4873 "${name}" localidraw update --yes 2>&1)"; code=$?
+set -e
+[ "${code}" = 5 ] || fail "localidraw update in the image exited ${code}, not 5: ${said}"
+case "${said}" in *"docker compose pull"*"ghcr.io/edspencer/localidraw:99.0.0"*) ;; *) fail "localidraw update didn't print the pull command: ${said}" ;; esac
+check "localidraw update prints the pull command, and exits 5"
 docker stop -t 5 "${name}" >/dev/null
 # SIGTERM is a clean stop: the saves under way finish, then it exits 0 (a 143 would be a death by the signal).
 [ "$(docker inspect -f '{{.State.ExitCode}}' "${name}")" = 0 ] \

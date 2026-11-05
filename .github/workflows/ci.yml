@@ -45,8 +45,10 @@ jobs:
       - name: Smoke-test the npm package
         run: npm run smoke:pack
       # The CLI contract (github.com/edspencer/cli-contract): packs it, installs it into a temp prefix, and checks
-      # --version, --help, a bad flag's exit code and usage, `service status` with nothing installed, serve's first line
-      # and /api/health. cli-contract.json says which checks apply, and why the others don't yet.
+      # --version, --help, a bad flag's exit code and usage, `service status` with nothing installed, `busy`, serve's
+      # first line and /api/health, and `update` against a local registry: up to date, --check, no TTY, busy, npx, a
+      # checkout, a global folder it can't write (as a non-root user only), an update and a downgrade.
+      # cli-contract.json says which checks apply; the service job runs the two that need a real service manager.
       - name: CLI contract conformance
         run: npx cli-conformance
 
@@ -83,6 +85,13 @@ jobs:
         env:
           LOCALIDRAW_REAL_SERVICE: "1"
         run: node scripts/service-real.mjs
+      # `localidraw update` with the real service: from the packed version to one a minor higher, served by the
+      # runner's local registry and installed into its temporary prefix, then one that won't start, which must roll
+      # back to the old version, running again (exit 6). The test job runs the other update checks.
+      - name: CLI contract conformance, update with a service
+        env:
+          CI_REAL_SERVICE: "1"
+        run: npx cli-conformance --only update-service,update-rollback
       - name: The service's log, on failure
         if: ${{ failure() }}
         run: tail -n 100 ~/.localidraw/logs/service.log || true

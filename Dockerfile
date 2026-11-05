@@ -40,10 +40,16 @@ COPY --from=build /app/dist dist
 # The canvases are /canvases: mount your folder there. Localidraw runs as the image's `node` user (uid 1000), not root,
 # so the folder must be writable by uid 1000 (or run with `--user` as its owner). The directory is made here so an
 # unmounted /canvases still works, in an anonymous volume.
+#
+# LOCALIDRAW_IN_DOCKER tells `localidraw update` this is an image (the CLI contract's SPEC §6): it prints the command
+# that pulls the new one and exits 5, rather than installing anything inside a container. `localidraw` is on PATH, so
+# `docker exec <container> localidraw busy` works, as Watchtower's pre-update hook (self-hosting docs) runs it.
 ENV NODE_ENV=production \
     LOCALIDRAW_HOST=0.0.0.0 \
+    LOCALIDRAW_IN_DOCKER=1 \
     PORT=3729
-RUN mkdir -p /canvases && chown node:node /canvases
+RUN mkdir -p /canvases && chown node:node /canvases \
+  && chmod +x /app/dist/server/cli.js && ln -s /app/dist/server/cli.js /usr/local/bin/localidraw
 USER node
 VOLUME ["/canvases"]
 EXPOSE 3729

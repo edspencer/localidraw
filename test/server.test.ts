@@ -493,11 +493,14 @@ test("delete moves a canvas into .localidraw/trash, and restore brings it back, 
 });
 
 /** A save whose body is held back after its first half, so it's under way until `finish()`. */
-function heldSave(to: Running, path: string, hash: string, body: string) {
+const heldSave = (to: Running, path: string, hash: string, body: string) => heldPut(to, `/api/canvas?path=${path}`, hash, body);
+
+/** A PUT whose body is held back after its first half, so it's under way until `finish()` (or `abort()`). */
+function heldPut(to: Running, url: string, hash: string, body: string) {
   const { port } = new URL(to.url);
   let req!: ReturnType<typeof request>;
   const response = new Promise<{ status: number; json: any }>((ok, fail) => {
-    req = request({ host: "127.0.0.1", port, method: "PUT", path: `/api/canvas?path=${path}`,
+    req = request({ host: "127.0.0.1", port, method: "PUT", path: url,
       headers: { host: `localhost:${port}`, "content-type": "application/json", "content-length": Buffer.byteLength(body), "x-base-hash": hash } }, (res) => {
       let raw = "";
       res.on("data", (c) => (raw += c)).on("end", () => ok({ status: res.statusCode!, json: JSON.parse(raw) }));
@@ -508,8 +511,65 @@ function heldSave(to: Running, path: string, hash: string, body: string) {
   req.write(body.slice(0, half));
   // Long enough for the server to have the request's headers, and be answering it, on loopback.
   const started = new Promise((ok) => setTimeout(ok, 150));
-  return { response, started, finish: () => req.end(body.slice(half)) };
+  return { response, started, finish: () => req.end(body.slice(half)), abort: () => req.destroy() };
 }
+
+test("/api/busy counts the saves under way, canvases and the Library, and nothing else", { timeout: 30_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "localidraw-busy-"));
+  writeFileSync(join(dir, "c.excalidraw"), scene(1));
+  const library = JSON.stringify({ type: "excalidrawlib", version: 2, libraryItems: [] });
+  writeFileSync(join(dir, "library.excalidrawlib"), library);
+  const server = await startServer({ root: dir, port: 0, webDir: web });
+  const busy = async () => (await call("GET", "/api/busy", { to: server })).json;
+  const until = async (want: object) => {
+    for (let i = 0; JSON.stringify(server.busy()) !== JSON.stringify(want); i++) {
+      if (i === 500) assert.fail(`still ${JSON.stringify(server.busy())}, waiting for ${JSON.stringify(want)}`);
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  };
+  try {
+    const idle = await call("GET", "/api/busy", { to: server });
+    assert.equal(idle.status, 200);
+    assert.equal(idle.headers["cache-control"], "no-store");
+    assert.deepEqual(idle.json, { busy: false, version: JSON.parse(readFileSync(join(import.meta.dirname, "../package.json"), "utf8")).version, counts: { canvas: 0, library: 0 } });
+
+    // Reading, and the page's event stream, aren't work a restart would lose.
+    await call("GET", "/api/canvas?path=c.excalidraw", { to: server });
+    const { port } = new URL(server.url);
+    const events = request({ host: "127.0.0.1", port, path: "/api/events", headers: { host: `localhost:${port}` } }, (res) => res.resume());
+    events.end();
+    assert.deepEqual((await busy()).counts, { canvas: 0, library: 0 });
+
+    const save = heldSave(server, "c.excalidraw", contentHash(scene(1)), scene(3));
+    await until({ canvas: 1, library: 0 });
+    assert.deepEqual(await busy(), { busy: true, version: idle.json.version, counts: { canvas: 1, library: 0 } });
+    const lib = heldPut(server, "/api/library", contentHash(library), library);
+    await until({ canvas: 1, library: 1 });
+    save.finish();
+    const saved = await save.response;
+    assert.equal(saved.status, 200);
+    await until({ canvas: 0, library: 1 });
+    lib.finish();
+    assert.equal((await lib.response).status, 200);
+    await until({ canvas: 0, library: 0 });
+
+    // A save whose connection drops half-way stops counting too.
+    const dropped = heldSave(server, "c.excalidraw", saved.json.hash, scene(5));
+    dropped.response.catch(() => {});
+    await until({ canvas: 1, library: 0 });
+    dropped.abort();
+    await until({ canvas: 0, library: 0 });
+
+    // It goes through the guard like everything else, and a refused write isn't counted.
+    assert.equal((await call("GET", "/api/busy", { to: server, headers: { host: "evil.example" } })).status, 403);
+    assert.equal((await call("PUT", "/api/canvas?path=c.excalidraw", { to: server, body: scene(1), headers: { host: "evil.example" } })).status, 403);
+    assert.deepEqual(server.busy(), { canvas: 0, library: 0 });
+    events.destroy();
+  } finally {
+    await server.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+  }
+});
 
 test("a graceful stop lets a save under way finish, refuses new connections, and doesn't wait for event streams", { timeout: 30_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "localidraw-drain-"));

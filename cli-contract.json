@@ -2,16 +2,32 @@
   "$schema": "./node_modules/@edspencer/cli-conformance/schemas/cli-contract.schema.json",
   "name": "Localidraw",
   "serve": { "args": ["serve", "{tmp}", "--port", "{port}"] },
-  "env": { "LOCALIDRAW_HOST": null, "LOCALIDRAW_ALLOWED_HOSTS": null, "LOCALIDRAW_POLL": null },
+  "env": { "LOCALIDRAW_HOST": null, "LOCALIDRAW_ALLOWED_HOSTS": null, "LOCALIDRAW_POLL": null, "LOCALIDRAW_IN_DOCKER": null, "LOCALIDRAW_UPDATE_HINT": null, "PORT": null, "HOST": null },
+  "update": {
+    "runtimeFile": "{home}/.localidraw/runtime.json",
+    "serviceInstall": ["service", "install", "{tmp}", "--port", "{port}"],
+    "timeoutMs": 600000
+  },
   "checks": {
     "version": true,
     "help": true,
     "unknown-flag": true,
     "service-status": true,
     "service-status-json": true,
-    "busy": { "skip": "`localidraw busy` comes with /api/busy (E3); until then it exits 2, reserved" },
-    "busy-json": { "skip": "`localidraw busy` comes with /api/busy (E3); until then it exits 2, reserved" },
+    "busy": true,
+    "busy-json": true,
     "serve-banner": true,
-    "serve-health": true
+    "serve-health": true,
+    "update-up-to-date": true,
+    "update-check-json": true,
+    "update-no-tty": true,
+    "update-busy": true,
+    "update-npx": true,
+    "update-checkout": true,
+    "update-not-writable": true,
+    "update": true,
+    "update-to-lower": true,
+    "update-service": true,
+    "update-rollback": true
   }
 }
