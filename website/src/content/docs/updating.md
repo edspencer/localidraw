@@ -7,57 +7,82 @@ description: Update Localidraw with localidraw update, check whether it's busy w
 localidraw update
 ```
 
-That asks npm for the latest version, says what it'll do, and asks before it does it. With the
-[service](/service/) installed, it stops the service, installs the new version, starts it again, and waits until the
-new version answers. If the new version doesn't start, it puts the old one back.
+`localidraw update` **asks the registry for the latest version, checks whether Localidraw is busy, asks you to
+confirm, downloads the new version first (while the old one is still running), stops the service, installs, starts
+the new version and waits until it answers.** If anything from the install on fails, it puts the old version back.
 
-Localidraw only asks npm about new versions when you run `update`, `update --check` or `doctor`. It never checks by
-itself, in the background or when it starts.
+Run it from a terminal. Something Localidraw itself started couldn't update it: stopping the service would stop that
+too.
 
 ## The options
 
 | Option | What it does |
 | --- | --- |
-| `--check` | Says whether there's a newer version, and changes nothing. |
-| `--to <version\|tag>` | Updates to a version (`0.6.0`) or a dist-tag (`next`) instead of the latest. It's the only way to go back to an older version. |
-| `--yes` | Doesn't ask first. Without a terminal (a script, cron), `update` needs it, or it exits `2`. |
-| `--force` | Doesn't wait for a save under way. The health check and the rollback still run. |
-| `--json` | Prints one JSON document on stdout, and everything else on stderr. |
+| `--check` | **Reports and changes nothing. It exits `0` whether or not there's an update; with `--json`, read `updateAvailable`.** |
+| `--to <version\|tag>` | **A version (`0.6.0`) or a dist-tag (`next`). It's the only way to move to a lower version.** |
+| `--yes` | **Skips the question. Without a terminal (a script, cron), `--yes` is required, or `update` exits `2`.** |
+| `--force` | **Skips the busy check, and nothing else: the health check and the rollback still run.** |
+| `--json` | One JSON document on stdout; prose on stderr. |
 
-`localidraw update --check --json` is the one for scripts: it exits `0` either way, and `updateAvailable` says
-whether there's a newer version. `localidraw service status` repeats what the last check found, without asking npm
-again.
+`localidraw update --check --json` is the one for scripts. `localidraw service status` repeats what the last check
+found, without asking the registry again.
 
 ## What it does
 
-1. **Checks how Localidraw was installed.** It updates a global npm, pnpm, bun or Volta install. For anything else,
-   it prints the command to run instead, and exits `5`:
-
-   | Installed with | It says to run |
-   | --- | --- |
-   | Docker | `docker compose pull && docker compose up -d` (see [Self-hosting](/self-hosting/#upgrading)) |
-   | `npx localidraw` | nothing: `npx localidraw@latest` already runs the latest |
-   | A git checkout | `git pull && npm install && npm run build` |
-   | A global folder you can't write to | the same `npm install -g` with `sudo` (it never runs `sudo` itself) |
-   | A dependency of another project | update it in that project |
-
-2. **Asks npm** for the target version, and checks that it runs on your Node.
-3. **Waits for saves.** If a canvas or the Library is being saved right now, it exits `75` and changes nothing. Saves
-   take a moment, so run it again, or give `--force`.
+1. **Checks how Localidraw was installed.** It updates a global npm, pnpm, bun or Volta install. Anything else gets
+   the right command instead ([below](#installs-that-cant-update-themselves)).
+2. **Asks the registry** for the target version, and checks that it runs on your Node.
+3. **Checks whether it's busy.** **If Localidraw is busy, `update` refuses with exit `75` before anything is
+   stopped**, and says what's running: a canvas or the Library being written. Saves take a moment, so wait and run
+   it again, or use `--force`.
 4. **Asks you** (`Update Localidraw 0.6.0 → 0.7.0? The service will restart.`), unless you gave `--yes`.
 5. **Downloads both versions** into npm's cache first, while the old one is still running, so a network failure
-   changes nothing.
+   changes nothing, and a rollback doesn't need the network.
 6. **Stops the service**, installs the new version, and starts it again through the new version's own
    `service install --refresh`, keeping the folder, port and hosts the service had.
-7. **Waits until the new version answers.** If it doesn't, it prints the end of the log, reinstalls the old version,
-   starts that, and exits `6`. In the rare case that the old one doesn't come back either, it exits `7` and prints what
-   to run.
-
-**Without the service.** If Localidraw is running in a terminal, `update` asks you to stop it first (exit `3` if it's
-still running). If nothing is running, it installs the new version and you start it as usual.
+7. **Waits until the new version answers.**
 
 An open page doesn't hold an update up. While Localidraw is stopped, the page says it isn't running, keeps
 anything you draw, and saves it once the new version is up.
+
+### If the new version doesn't start
+
+**`update` waits up to 30 seconds for the new version to answer. If it doesn't, it prints the last 20 lines of the
+log, reinstalls the old version and checks that it answers: exit `6`, "0.7.0 didn't start; 0.6.0 is running again."
+If the old version doesn't come back either, it exits `7` and prints the commands to run by hand.**
+
+### Without a service
+
+If you run `localidraw serve` yourself, stop it first: if it's still answering, `update` asks you to stop it, and
+exits `3`. With nothing running, `update` installs the new version, and you start Localidraw again to use it.
+
+## Installs that can't update themselves
+
+These exit `5` and print the right command instead:
+
+| Installed with | It says to run |
+| --- | --- |
+| Docker (`LOCALIDRAW_IN_DOCKER=1`, set by the image) | `docker compose pull && docker compose up -d`, with the image's tag (see [Docker and Watchtower](#docker-and-watchtower)) |
+| A managed install | **If `LOCALIDRAW_UPDATE_HINT` is set, `update` prints it and exits `5`.** Set it in the environment of an install something else manages (an Ansible role, a NixOS module), so nobody updates it by hand. |
+| `npx localidraw` | nothing: **`npx localidraw@latest` already runs the latest** |
+| A git checkout | `git pull && npm install && npm run build` |
+| A global folder you can't write to | **the same command with `sudo`. Localidraw never runs `sudo` itself.** |
+| yarn global, or a dependency of another project | update it the way you installed it |
+
+## Docker and Watchtower
+
+In Docker, pull the new image and start a new container from it: `docker compose pull && docker compose up -d`.
+**Nothing installs anything inside a container.**
+
+With Watchtower, enable lifecycle hooks (`WATCHTOWER_LIFECYCLE_HOOKS=true`) and label the container
+`com.centurylinklabs.watchtower.lifecycle.pre-update=localidraw busy`. **When Localidraw is busy the hook exits `75`
+and Watchtower skips the update until its next run.** [Self-hosting](/self-hosting/#upgrading) has the Compose file.
+
+## No automatic checks
+
+**Localidraw never checks for updates by itself. Only `update`, `update --check` and `doctor` ask the registry, and
+only when you run them. `service status` repeats what the last of those found.** There's no check in the background
+or when it starts, and the page never asks.
 
 ## Is it busy?
 
@@ -74,7 +99,7 @@ canvas or the Library is being written, and `3` when no Localidraw is running. I
 ```
 
 `update`, `service stop` and `service restart` run the same check first, and refuse with exit `75` unless you give
-`--force`. A script or a tool such as [Watchtower](/self-hosting/#upgrading) can run `localidraw busy` before it
+`--force`. A script or a tool such as [Watchtower](#docker-and-watchtower) can run `localidraw busy` before it
 restarts Localidraw. The answer is only ever counts. The server answers it at `GET /api/busy`, through the same
 host checks as everything else.
 
@@ -93,7 +118,8 @@ wrong. It exits `1` if a check failed; warnings don't change that.
 
 - **Node** is the version Localidraw needs (22 or later).
 - **How it was installed**, and whether `update` can update it.
-- **The service**, if it's installed: whether the Node, Localidraw and folder it names are still there.
+- **The service**, if it's installed: whether the Node, Localidraw and folder it names are still there, and whether
+  it's the same install of Localidraw as the one you're running.
 - **The version running** is the one installed.
 - **The port** is free, or held by Localidraw.
 - **Linger** is on (Linux), so the service keeps running when you log out.
@@ -112,14 +138,14 @@ wrong. It exits `1` if a check failed; warnings don't change that.
 
 | Code | `update` | `busy` |
 | --- | --- | --- |
-| `0` | Updated, or already up to date. `--check` exits `0` either way. | Not busy. |
-| `1` | It failed: npm couldn't be reached, the version doesn't exist, or another update is running. | An answer that wasn't Localidraw's. |
-| `2` | A usage error, or no terminal and no `--yes`. | A usage error. |
-| `3` | Localidraw is running in a terminal: stop it first. | Nothing is running. |
-| `5` | This install can't update itself. The command to run was printed. | |
-| `6` | The new version didn't start. The old one is running again. | |
-| `7` | The new version didn't start, and neither did the old one. What to run was printed. | |
-| `75` | A save is under way. Nothing was changed. | A save is under way. |
+| `0` | Updated, or up to date. `--check` exits `0` either way. | Not busy. |
+| `1` | It failed: the registry couldn't be reached, the version doesn't exist, or another update is running. | An answer that wasn't Localidraw's. |
+| `2` | A usage error, or no terminal without `--yes`. | A usage error. |
+| `3` | A foreground `serve` is still answering: stop it first. | Nothing is running. |
+| `5` | This install can't update itself; the right command was printed. | |
+| `6` | The update failed and was rolled back; the old version is running again. | |
+| `7` | The update failed and couldn't be rolled back; a person is needed. What to run was printed. | |
+| `75` | Busy: a save is under way. Nothing was changed. | Busy: a save is under way. |
 
 These follow the [CLI contract](https://github.com/edspencer/cli-contract) that Ed's local tools share.
 

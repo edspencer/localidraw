@@ -3,93 +3,52 @@ title: Running as a service
 description: Keep Localidraw running in the background on macOS or Linux, from login on, serving one folder, with localidraw service.
 ---
 
-`localidraw service` keeps Localidraw running in the background, so a folder of canvases is always at
-http://localhost:3729/, without a terminal left open. On macOS it's a launchd LaunchAgent; on Linux it's a
-systemd user service. Both run as you, start when you log in, and are restarted if Localidraw stops on its own.
+`localidraw service install` sets Localidraw up to start when you log in and to restart if it stops: a LaunchAgent
+on macOS, a systemd user service on Linux. Both run as you, and keep a folder of canvases at http://localhost:3729/
+without a terminal left open. Windows isn't supported yet ([below](#windows)).
 
 ```sh
 npm install -g localidraw
 localidraw service install ~/notes
 ```
 
-That writes the service, starts it, and waits until it answers. Install the package first: from `npx`, the service
-would run a copy in npm's cache, which npm clears, so `install` refuses there.
+## Installing
 
-## One folder per machine
+`service install [folder]` takes the folder of canvases, and `--port`, `--host`, `--allowed-host` and `--poll`, as
+`serve` does. The folder is needed the first time. It writes the service, starts it, and **waits until Localidraw
+answers** (up to 20 seconds) before it returns. If it doesn't answer, `install` prints the last 20 lines of its log
+and exits `1`.
+
+- **Running it again is safe:** it keeps the port and settings the service already has, unless you give new ones,
+  and restarts the running service onto them.
+
+  ```sh
+  localidraw service install --port 3740   # the same folder, on another port
+  ```
+
+- **`--dry-run` prints the unit and writes nothing.**
+- It refuses to install **from an npx cache** (the folder is temporary: npm clears it, and the service would stop
+  working), **from a git checkout unless you add `--from-checkout`**, and **when something else holds the port**
+  (it says when that's a `localidraw` running in a terminal).
+- On Linux, **linger.** Without it, the service stops when you log out, SSH sessions included, and starts only when
+  you log in. `install` and [`doctor`](/updating/#when-something-is-wrong-doctor) check, and print what to run, once:
+
+  ```sh
+  sudo loginctl enable-linger $USER
+  ```
+
+  Localidraw never runs `sudo` itself.
+
+### One folder per machine
 
 There's one Localidraw service per machine, and it serves the folder you gave `install`. Installing another folder
 moves the service there. To draw in a second folder at the same time, run `localidraw ~/other --port 3730` in a
 terminal as well.
 
 The service is written with everything it runs with: the folder, the port, the host, the allowed hosts and `--poll`.
-It doesn't read `$LOCALIDRAW_HOST` and the other variables, so it runs the same whichever shell installed it. Running
-`install` again keeps those settings, unless you give new ones:
+It doesn't read `$LOCALIDRAW_HOST` and the other variables, so it runs the same whichever shell installed it.
 
-```sh
-localidraw service install --port 3740   # the same folder, on another port
-```
-
-## The commands
-
-| Command | What it does |
-| --- | --- |
-| `service install [folder]` | Writes the service, starts it and waits until it answers. Takes `--port`, `--host`, `--allowed-host` and `--poll`, as `serve` does. The folder is needed the first time. |
-| `service install --refresh` | Writes the installed service again, from the settings it records. [`update`](/updating/) uses this. |
-| `service install --dry-run` | Prints the unit file it would write, and writes nothing. |
-| `service uninstall` | Stops it and removes the service. The log and your canvases stay. |
-| `service start` | Starts it, and waits until it answers. |
-| `service stop [--force]` | Stops it until `service start`, or until you next log in. It stays installed: to keep it off, `uninstall` it. |
-| `service restart [--force]` | Stops and starts it. If the Node or the Localidraw it names has gone (an nvm or fnm Node removed, say), it writes the service again first. |
-| `service status [--json]` | Says whether it's installed, running and answering, with the folder, the port, the installed and running versions, and any warnings. |
-| `service logs [-f] [-n <lines>]` | The last 50 lines of its log, or `-n` lines. `-f` follows it. |
-
-`localidraw service --help` lists them too.
-
-Every command but `logs` takes `--json`: it prints one JSON document on stdout, and what it says for a person goes to
-stderr. For `status` that's the report; for `install`, `uninstall`, `start`, `stop` and `restart` it's the same
-report, taken afterwards, plus `ok`, `action` and, when it failed, `error` (`"busy"`, `"not installed"`, or the
-reason). The exit code is the same as without it.
-
-```sh
-localidraw service stop --json | jq '{ok, error, running}'
-```
-
-### Exit codes
-
-`service status` exits `0` when the service is running and answering, `3` when it's installed but not running or not
-answering, and `4` when it isn't installed. `start`, `stop`, `restart` and `logs` exit `4` with nothing installed,
-too. `stop` and `restart` exit `75`, and do nothing, while a canvas is being saved (below). A usage error exits `2`,
-and any other failure `1`: a port something else holds, say, or a service that didn't answer once started (the last
-lines of its log are printed then). These follow the
-[CLI contract](https://github.com/edspencer/cli-contract) that Ed's local tools share, so a script can run
-`localidraw service status` and branch on the code:
-
-```sh
-localidraw service status > /dev/null; echo $?
-```
-
-## Where things go
-
-| | macOS | Linux |
-| --- | --- | --- |
-| The service | `~/Library/LaunchAgents/net.edspencer.localidraw.plist` | `~/.config/systemd/user/localidraw.service` |
-| Its log | `~/.localidraw/logs/service.log` | `~/.localidraw/logs/service.log` |
-
-`~/.localidraw` is Localidraw's own folder: the service's log and working folder, and `runtime.json`, which says
-where a running Localidraw is listening (`serve` writes it too, in a terminal, and removes it when it stops). Your
-canvases are never kept there: they stay in the folder the service serves, and `install` refuses a folder inside
-`~/.localidraw`.
-
-The service appends everything Localidraw prints to that one log, and Localidraw rotates it itself: past 8 MB it's
-copied to `service.log.1` and emptied in place, keeping three old ones (`.1` to `.3`).
-
-The service runs Node and Localidraw by their full paths, so it keeps working under nvm, fnm or volta until that Node
-is removed. `service status` warns when it has been, and `service restart` writes the service again with the Node
-you're running. `service status` and `localidraw doctor` also warn when the service runs another install of
-Localidraw than the one you're asking (a second global install, say): run `localidraw service install` from the one
-you mean it to run.
-
-## Hosting it as a service
+### Hosting it as a service
 
 The [hosting rules](/self-hosting/#listening-beyond-localhost) are the same as for `serve`. The service listens on
 `127.0.0.1` unless you give `--host`, and a host beyond loopback needs at least one `--allowed-host`, or `install`
@@ -102,31 +61,92 @@ localidraw service install /srv/canvases --host 0.0.0.0 --allowed-host draw.exam
 Localidraw has no login of its own, so put it behind a reverse proxy that does authentication, as
 [Self-hosting](/self-hosting/) describes.
 
-## On Linux: linger
+## Where things are
 
-A systemd user service stops when you log out, SSH sessions included, unless your user lingers. `install` checks,
-and if linger is off it says to run, once:
+| | macOS | Linux |
+| --- | --- | --- |
+| The unit | `~/Library/LaunchAgents/net.edspencer.localidraw.plist` | `~/.config/systemd/user/localidraw.service` |
+| The log | `~/.localidraw/logs/service.log` | `~/.localidraw/logs/service.log` |
+
+`~/.localidraw` is Localidraw's own folder: the service's log and working folder, and `runtime.json`, which says
+where a running Localidraw is listening (`serve` writes it too, in a terminal, and removes it when it stops). Your
+canvases are never kept there: they stay in the folder the service serves, and `install` refuses a folder inside
+`~/.localidraw`.
+
+The unit runs this Node and this install's `cli.js` by their real paths, never the `localidraw` shim, so **if you
+remove that Node version (nvm, fnm, volta), `service status` and `doctor` warn, and `service install` again fixes
+it.** So does `service restart`, which writes the unit again first when the Node or Localidraw it names has gone.
+They also warn when the service runs another install of Localidraw than the one you're asking (a second global
+install, say): run `localidraw service install` from the one you mean it to run.
+
+## The commands
+
+| Command | What it does |
+| --- | --- |
+| `service install [folder]` | Writes the unit, starts it and waits until it answers ([above](#installing)). `--dry-run` prints the unit instead; `--refresh` writes it again from the settings it records, which [`update`](/updating/) uses. |
+| `service uninstall` | Stops it and removes the unit. Your canvases and the log stay. |
+| `service start` | Starts it, and waits until it answers. |
+| `service stop [--force]` | Stops it until `service start`, or the next login or boot. It doesn't disable the service. To keep it off for good, use `service uninstall`. |
+| `service restart [--force]` | Stops and starts it, writing the unit again first if the Node or the Localidraw it names has gone. |
+| `service status [--json]` | Says whether it's installed, running and answering, with the folder, the port, the installed and running versions, the unit, the log, and any warnings. |
+| `service logs [-f] [-n <lines>]` | The last 50 lines of its log; `-f` follows, `-n` sets how many. |
+
+`localidraw service --help` lists them too.
+
+Every command but `logs` takes `--json`: it prints one JSON document on stdout, and what it says for a person goes to
+stderr. For `status` that's the report; for `install`, `uninstall`, `start`, `stop` and `restart` it's the same
+report, taken afterwards, plus `ok`, `action` and, when it failed, `error` (`"busy"`, `"not installed"`, or the
+reason). The exit code is the same as without it.
 
 ```sh
-sudo loginctl enable-linger $USER
+localidraw service stop --json | jq '{ok, error, running}'
 ```
 
-Localidraw never runs `sudo` itself.
+## Busy
+
+**`service stop` and `service restart` first ask the running Localidraw whether it's busy**: whether a canvas or the
+Library is being written right now (a save, a new canvas, a rename, a move or a delete). **If it is, they refuse
+with exit `75` and say what's running. Wait and try again, or add `--force`, which prints the same message prefixed
+`Overriding:` and goes ahead.** A save takes a fraction of a second, so trying again a moment later is the usual
+answer. `uninstall` doesn't ask. [`localidraw busy`](/updating/#is-it-busy) asks the same question on its own: it
+exits `0` when it isn't busy, `75` when it is, and `3` when nothing is running.
+
+Either way, stopping sends SIGTERM, which lets any save under way finish writing before Localidraw exits, as
+<kbd>Ctrl</kbd>+<kbd>C</kbd> does ([Stopping it](/getting-started/#stopping-it)). A page whose save couldn't reach it
+says "Not saved", keeps the drawing, and saves it once the service is back.
+
+## Logs
+
+There's one file, `~/.localidraw/logs/service.log`, which stdout and stderr both append to; `service logs` reads it.
+**Localidraw rotates it itself** (by copying and truncating, at 8 MB, keeping 3: `service.log.1` to `.3`), because
+the service manager holds it open. It looks when it starts and every 15 minutes after.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Running and answering (`status`), or done. |
+| `1` | It failed: a port something else holds, say, or a service that didn't answer once started (the last lines of its log are printed then). |
+| `2` | A usage error: an unknown command or flag, or a bad value. |
+| `3` | Installed but not running or not answering (`status`). |
+| `4` | Not installed (`status`, `start`, `stop`, `restart`, `logs`). |
+| `75` | Busy: a save is under way, and `stop` or `restart` changed nothing. |
+
+These follow the [CLI contract](https://github.com/edspencer/cli-contract) that Ed's local tools share, so a script
+can run `localidraw service status` and branch on the code:
+
+```sh
+localidraw service status > /dev/null; echo $?
+```
 
 ## Windows
 
 Not yet. On Windows, `service status` exits `4` (nothing's installed) and the other `service` commands exit `1`. Run
 `localidraw ~/notes` in a terminal, or keep it running with Task Scheduler or whatever you already use.
 
-## Stopping and updating
+## Updating
 
-`service stop` and `service restart` first ask Localidraw whether it's in the middle of a save, as
-[`localidraw busy`](/updating/#is-it-busy) does. If it is, they say so and exit `75`, changing nothing: run them
-again in a moment, or give `--force`. Either way they send SIGTERM, which lets any save under way finish writing
-before Localidraw exits, as <kbd>Ctrl</kbd>+<kbd>C</kbd> does ([Stopping it](/getting-started/#stopping-it)). A page
-whose save couldn't reach it says "Not saved", keeps the drawing, and saves it once the service is back.
-
-To update, run `localidraw update`: it stops the service, installs the new version and starts it, and puts the old
-one back if the new one doesn't answer ([Updating](/updating/)). If you install a new version yourself with
+Run `localidraw update`: it stops the service, installs the new version and starts it, and puts the old one back if
+the new one doesn't answer. [Updating](/updating/) has the details. If you install a new version yourself with
 `npm install -g localidraw`, run `localidraw service restart` to start it: `service status` warns when the running
 version isn't the installed one.
