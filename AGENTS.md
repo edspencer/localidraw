@@ -44,7 +44,11 @@ For agents (and people) developing Localidraw itself.
   failure such as a port in use, 2 for a usage error with the usage after the message, 3 and 4 for not running and
   not installed, 5 to 7 for `update`, 75 for busy. Set `process.exitCode` rather than calling `process.exit()`. `serve`'s first stdout line is
   `Localidraw <version>: <url>`, and nothing goes to stdout before it; warnings go to stderr. `--quiet` prints that line
-  alone. `--json` means one document on stdout and nothing else there (prose goes to stderr), on every command but
+  alone. That line is for a server that serves: `serve` with no folder, on a port held by a Localidraw that serves the
+  list (`runtime.json` names it, `/api/health` answers, and `/api/projects` says `root: null`), prints
+  `Localidraw is already running: <url>` instead and exits 0; `localidraw <folder>` still exits 1 there. `--open`
+  (`-o`, on `serve`, `service install` and `service start`) opens the page once it answers, through `openInBrowser`
+  (`server/open.ts`), which the service's commands take from `ServiceContext.open`, so tests never start a browser. `--json` means one document on stdout and nothing else there (prose goes to stderr), on every command but
   `serve` and `service logs`; `service install`/`uninstall`/`start`/`stop`/`restart` print `status`'s report plus
   `ok`, `action` and `error`, Hallway's shape. SIGTERM and Ctrl-C stop
   it through `drain` in `server/server.ts`, which lets the requests under way (a save mid-`writeAtomic`) finish first,
@@ -62,19 +66,24 @@ For agents (and people) developing Localidraw itself.
   `Host: localhost`, and refuse with 75 unless `--force`.
 - **`update` and `doctor` are the contract's, with Localidraw's hooks.** `server/update.ts` gives the contract's
   `runUpdate` (`server/contract/update.ts`) its names, the busy check and the service: stop, then hand over through
-  the new CLI's `service install --refresh`. `server/doctor.ts` has the spec's checks plus the page, the folder and
-  the inotify limit. Only `update`, `update --check` and `doctor` ask the npm registry, and only when a person runs
+  the new CLI's `service install --refresh`. `server/doctor.ts` has the spec's checks plus the page, the list
+  (`config.json` parses), its folders (Scratch and every listed one there and readable) and the inotify limit, counted
+  across them all: what `localidraw` and the service serve, never the current folder. Only `update`, `update --check` and `doctor` ask the npm registry, and only when a person runs
   them. Their files, `update.lock` and `update-check.json`, are in `~/.localidraw` with the rest. The image sets
   `LOCALIDRAW_IN_DOCKER=1`, so `update` there prints the pull command and exits 5.
-- **The service serves one folder, and is the contract's.** `localidraw service` (`server/service.ts`) runs the
+- **The service serves the list, and is the contract's.** `localidraw service` (`server/service.ts`) runs the
   service managers copied from edspencer/cli-contract (`server/contract/service/`, each file headed with where it's
   from: change them there, then copy them back). There's one service per machine (`net.edspencer.localidraw` /
-  `localidraw.service`), and its unit records everything it runs with as flags: `serve <folder>`, the port, the host,
-  the allowed hosts, `--poll`. Never the environment, so `install --refresh` re-renders a unit from the unit. The
-  hosting rule holds there too: `install` refuses a `--host` beyond loopback without `--allowed-host`. Its home is
+  `localidraw.service`), and it serves Scratch and `config.json`'s folders: its unit runs `serve` with no folder, and
+  records everything it runs with as flags: the port, the host, the allowed hosts, `--poll`. Never the environment,
+  so `install --refresh` re-renders a unit from the unit. `install` takes no folder (one is a usage error pointing at
+  `localidraw add`); a unit from before 0.9 that names one reads back without it (`settingsOf`), and `status` calls it
+  old, so `restart` re-writes it. `status` reports `folders` (how many are listed) and `scratch`. The hosting rule
+  holds there too: `install` refuses a `--host` beyond loopback without `--allowed-host`. Its home is
   `~/.localidraw` (`localidrawHome` in `server/options.ts`): `runtime.json`, which `serve` writes 0600 once listening
-  and removes on a clean stop, `logs/service.log` and `service/`. **Never drawings**: `install` refuses a folder
-  inside it. `stop` and `restart` run the busy check, and `stop` never disables. The real managers are proven only in CI (`scripts/service-real.mjs`); `test/service.test.ts` drives
+  and removes on a clean stop, `config.json`, `logs/service.log` and `service/`. **Never drawings**, with one
+  exception, Scratch (`~/.localidraw/drawings`): `add` refuses a folder inside `~/.localidraw`, and the docs say to
+  back Scratch up. `stop` and `restart` run the busy check, and `stop` never disables. The real managers are proven only in CI (`scripts/service-real.mjs`); `test/service.test.ts` drives
   the commands against fake ones, whose `launchctl print` must fail when nothing is loaded.
 - **The default port is one constant**, `DEFAULT_PORT` in `server/port.ts`: 3729, "DRAW" on a phone keypad (not LOCA, 5622, which is Local Review's). The
   README and the docs site (`website/src/site.mjs`) say it too; change them together (`test/docs.test.ts` checks).

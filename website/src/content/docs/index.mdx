@@ -1,10 +1,10 @@
 ---
-title: Excalidraw for the files in a folder
-description: A local Excalidraw for the .excalidraw files in a folder. Saved as you draw, and merged with what your coding agent writes.
+title: Excalidraw for the drawings on your machine
+description: A local Excalidraw for the .excalidraw files in your projects, plus a Scratch folder. Saved as you draw, and merged with what your coding agent writes.
 template: splash
 hero:
   title: Localidraw
-  tagline: A local Excalidraw for the <code>.excalidraw</code> files in a folder. Saved to the file as you draw, and merged with what your coding agent writes to it.
+  tagline: A local Excalidraw for the <code>.excalidraw</code> files in your projects, and a Scratch folder for everything else. Saved to the file as you draw, and merged with what your coding agent writes to it.
   actions:
     - text: Get started
       link: /getting-started/
@@ -19,7 +19,8 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 import { LOCAL_URL } from '../../site.mjs';
 
 ```sh
-npx localidraw ~/notes
+npx localidraw                 # Scratch, and the folders you add
+localidraw add ~/code/web-app  # its canvases show at once
 ```
 
 Then open <a href={`${LOCAL_URL}/`}>{LOCAL_URL}</a>.
@@ -29,9 +30,9 @@ Then open <a href={`${LOCAL_URL}/`}>{LOCAL_URL}</a>.
 <small>Drawn live in Localidraw while a script edits the file as an agent would. The pointer and captions were added for the recording.</small>
 
 <CardGrid>
-	<Card title="Projects and canvases" icon="open-book">
-		Every folder with `.excalidraw` files in it is a project, and each file is a canvas, in a **Canvases** tab
-		next to Excalidraw's Library. [The sidebar](/canvases/)
+	<Card title="Every folder, one Localidraw" icon="open-book">
+		Add your projects' folders with `localidraw add`, and draw in Scratch when there's no project. They're all in a
+		**Canvases** tab next to Excalidraw's Library, grouped by folder. [Folders and Scratch](/folders/)
 	</Card>
 	<Card title="Saved as you draw" icon="document">
 		Each canvas is written back to its file a moment after you stop. Opening one, or moving around it, never writes

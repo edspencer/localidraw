@@ -69,10 +69,12 @@ user service for you ([Running as a service](/service/)):
 
 ```sh
 npm install -g localidraw
-localidraw service install /srv/canvases --host 0.0.0.0 --allowed-host draw.example.com
+localidraw add /srv/canvases
+localidraw service install --host 0.0.0.0 --allowed-host draw.example.com
 ```
 
-Or write a service file of your own that runs
+The service serves [the list](/folders/): Scratch as well as `/srv/canvases`, and any folder you add later. To host
+exactly one folder, as the image does, write a service file of your own that runs
 `npx localidraw@latest /srv/canvases --allowed-host draw.example.com` (Node 22 or later). The rest of this page applies
 to each.
 

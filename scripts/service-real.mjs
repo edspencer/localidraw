@@ -2,19 +2,23 @@
 // user instance on Linux. The package is used as a user gets it: packed, installed globally into a temporary prefix,
 // and run from there.
 //
-// Modelled on Paddock's scripts/service-real.mjs (cli-contract rollout, wave E2), for Localidraw: one folder per
-// service, `~/.localidraw` as the home, and no busy check yet (E3).
+// Modelled on Paddock's scripts/service-real.mjs (cli-contract rollout, wave E2), for Localidraw: one service per
+// machine, serving the list (Scratch and the folders `localidraw add` puts in ~/.localidraw/config.json), with
+// `~/.localidraw` as the home.
 //
 // CI ONLY. It writes the real ~/Library/LaunchAgents/net.edspencer.localidraw.plist or
 // ~/.config/systemd/user/localidraw.service and loads it, under the real label, so it must never run on a machine
 // that uses Localidraw as a service. It refuses unless CI=true and LOCALIDRAW_REAL_SERVICE=1, and again if a unit is
-// already installed. It removes what it installs.
+// already installed. It removes what it installs, and puts back the config.json it found.
 //
 // What it checks, in order:
 //   status with nothing installed     exit 4, --json says installed: false
 //   install from npx's cache          refused, exit 1, nothing written
-//   install <folder> --port <free>    it answers; the unit runs the installed CLI with `serve <folder>`, logging to
-//                                     ~/.localidraw/logs/service.log, which gets the banner (so stdout reaches it)
+//   install <folder>                  a usage error (exit 2) pointing at `localidraw add`
+//   add <folder>, install --port <free>
+//                                     it answers, serving the folder as `canvases/…`; the unit runs the installed CLI
+//                                     with `serve` and no folder, logging to ~/.localidraw/logs/service.log, which gets
+//                                     the banner (so stdout reaches it)
 //   status / status --json            exit 0, running and answering, the installed version is the running one
 //   runtime.json                      in ~/.localidraw, not group or world readable, naming the supervisor's pid
 //   busy, stop, restart mid-write     exit 75, and the same process still answering; stop --json: error "busy"
@@ -25,7 +29,8 @@
 //   stop/start --json                 one document: ok, action, wasRunning, and what status reports
 //   start, restart                    exit 0, answering again
 //   install --refresh                 exit 0; the unit is re-written as it was
-//   install another folder, hosted    the one service moves there, on 0.0.0.0 with an allowed host, and answers
+//   add another folder                it shows without a restart: the same process serves it
+//   install, hosted                   the one service moves to 0.0.0.0 with an allowed host, and answers
 //   uninstall                         the unit goes; status and logs exit 4; the log and the canvases are kept
 import { execFileSync, spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
@@ -59,6 +64,9 @@ const env = { ...process.env };
 for (const k of ["PORT", "HOST", "LOCALIDRAW_HOST", "LOCALIDRAW_ALLOWED_HOSTS", "LOCALIDRAW_POLL", "NODE_OPTIONS", "NODE_ENV"]) delete env[k];
 const home = path.join(os.homedir(), ".localidraw");
 const bin = path.join(prefix, "bin", "localidraw");
+// The list the service serves is the real one too: whatever was there before is put back at the end.
+const configFile = path.join(home, "config.json");
+const configBefore = fs.existsSync(configFile) ? fs.readFileSync(configFile) : undefined;
 
 /**
  * Runs the installed CLI: { code, stdout, stderr }, never throwing for an exit code. `spawnSync`, because
@@ -105,6 +113,8 @@ const health = async (port) => {
   }
 };
 const projects = async (port) => (await (await fetch(`http://127.0.0.1:${port}/api/projects`)).json()).projects;
+/** The canvas paths it serves, every folder's. */
+const canvasPaths = async (port) => (await projects(port)).flatMap((p) => p.canvases.map((c) => c.path));
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Whether the manager still starts it at the next login: `stop` must leave that alone (SPEC §1). */
@@ -133,30 +143,39 @@ try {
   const unit = before.unit;
 
   step("install from npx's cache: refused, and nothing written");
-  const npx = spawnSync("npx", ["-y", `--package=${tarball}`, "localidraw", "service", "install", canvases], {
+  const npx = spawnSync("npx", ["-y", `--package=${tarball}`, "localidraw", "service", "install"], {
     cwd: work, env: { ...env, npm_config_cache: path.join(tmp, "npm-cache") }, encoding: "utf8",
   });
   assert.equal(npx.status, 1, `npx install exited ${npx.status}\n${npx.stdout}\n${npx.stderr}`);
   assert.match(npx.stderr, /npx's cache/);
   assert.ok(!fs.existsSync(unit), "nothing written");
 
+  step("install with a folder: a usage error, pointing at localidraw add");
+  assert.match(expectExit(2, "service", "install", canvases).stderr, /takes no folder .*localidraw add /);
+  assert.ok(!fs.existsSync(unit), "nothing written");
+
   const port = await freePort();
-  step(`service install ${canvases} --port ${port}`);
+  step(`add ${canvases}, then service install --port ${port}`);
+  assert.match(expectExit(0, "add", canvases).stdout, /as canvases/);
   installed = true;
-  const out = expectExit(0, "service", "install", canvases, "--port", String(port)).stdout;
+  const out = expectExit(0, "service", "install", "--port", String(port)).stdout;
   assert.match(out, new RegExp(`running at http://localhost:${port}/`));
+  assert.match(out, /Serves: Scratch .* and 1 folder /);
   const answer = await until("health", () => health(port));
   assert.equal(answer.version, version, "/api/health reports the version it runs (SPEC §8)");
-  assert.equal((await projects(port))[0]?.canvases?.[0]?.path, "project/one.excalidraw", "it serves the folder it was given");
+  assert.ok((await canvasPaths(port)).includes("canvases/project/one.excalidraw"), "it serves the listed folder, by its name");
+  const opened = await fetch(`http://127.0.0.1:${port}/api/canvas?path=canvases/project/one.excalidraw`);
+  assert.equal(opened.status, 200, "and its canvas opens");
 
-  step("the unit runs the installed CLI with serve and the folder, and logs to ~/.localidraw/logs/service.log");
+  step("the unit runs the installed CLI with serve and no folder, and logs to ~/.localidraw/logs/service.log");
   const unitText = fs.readFileSync(unit, "utf8");
   const logFile = path.join(home, "logs", "service.log");
   assert.ok(unitText.includes(cli), `the unit runs the installed CLI (${cli}):\n${unitText}`);
   const runsServe = process.platform === "darwin"
-    ? new RegExp(`<string>serve</string>\\s*<string>${esc(canvases)}</string>`).test(unitText)
-    : new RegExp(`^ExecStart=.*${esc(cli)} serve ${esc(canvases)} --port ${port} --host 127\\.0\\.0\\.1$`, "m").test(unitText);
-  assert.ok(runsServe, `it runs \`serve <folder>\`:\n${unitText}`);
+    ? new RegExp(`<string>serve</string>\\s*<string>--port</string>\\s*<string>${port}</string>`).test(unitText)
+    : new RegExp(`^ExecStart=.*${esc(cli)} serve --port ${port} --host 127\\.0\\.0\\.1$`, "m").test(unitText);
+  assert.ok(runsServe, `it runs \`serve\` with no folder:\n${unitText}`);
+  assert.ok(!unitText.includes(canvases), "the folder is in the list, not the unit");
   assert.ok(unitText.includes(logFile), `it logs to ${logFile}:\n${unitText}`);
   assert.ok(!/fnm_multishells|_npx|node_modules\/\.bin/.test(unitText), "no per-shell PATH entries");
   if (process.platform === "darwin") execFileSync("plutil", ["-lint", unit], { stdio: "inherit" });
@@ -168,7 +187,8 @@ try {
   assert.equal(s.running, true);
   assert.equal(s.answering, true);
   assert.equal(s.port, port);
-  assert.equal(s.folder, canvases);
+  assert.equal(s.folders, 1);
+  assert.equal(s.scratch, path.join(home, "drawings"));
   assert.equal(s.cli, cli);
   assert.equal(s.log, logFile);
   assert.equal(s.installedVersion, version);
@@ -190,7 +210,7 @@ try {
   // A new canvas whose body is held back: the real server counts it from the request's start until it's answered.
   // Its connection belongs to this process, but the server answering it is the service's, so a spawnSync below
   // can't block it (a stand-in server in this process would be blocked, and read as not running).
-  const body = JSON.stringify({ path: "project/busy-check" });
+  const body = JSON.stringify({ path: "canvases/project/busy-check" });
   let held;
   const created = new Promise((ok, fail) => {
     held = http.request({ host: "127.0.0.1", port, method: "POST", path: "/api/canvases",
@@ -222,7 +242,8 @@ try {
   assert.equal(fs.statSync(unit).mtimeMs, mtime);
 
   step("logs, and an unknown flag");
-  assert.ok(expectExit(0, "service", "logs", "-n", "5").stdout.includes(`Localidraw ${version}`));
+  // The banner names Scratch and each folder, so its first line is a few lines up.
+  assert.ok(expectExit(0, "service", "logs", "-n", "20").stdout.includes(`Localidraw ${version}`));
   const bad = expectExit(2, "service", "status", "--nope");
   assert.match(bad.stderr, /^localidraw: unknown option --nope\n\nUsage: localidraw service/);
 
@@ -264,14 +285,19 @@ try {
   assert.ok(fs.statSync(unit).mtimeMs > refreshMtime, "the unit was re-written");
   assert.equal(fs.readFileSync(unit, "utf8"), unitBefore, "...with nothing about the service changed");
 
-  step("install another folder, hosted: the one service moves there, and answers");
+  step("add another folder while it runs: it shows without a restart");
   const pidBefore = statusJson(0).pid;
-  const moved = expectExit(0, "service", "install", other, "--host", "0.0.0.0", "--allowed-host", "draw.example").stdout;
-  assert.match(moved, /moving it from .* to /);
-  assert.match(moved, /has no login/);
-  await until("the other folder", async () => (await projects(port))?.[0]?.canvases?.[0]?.path === "two.excalidraw");
+  expectExit(0, "add", other);
+  await until("the other folder", async () => (await canvasPaths(port)).includes("other/two.excalidraw"));
   s = statusJson(0);
-  assert.equal(s.folder, other);
+  assert.equal(s.folders, 2);
+  assert.equal(s.pid, pidBefore, "the same process: no restart");
+
+  step("install again, hosted: the one service moves to 0.0.0.0, still serving the list, and answers");
+  const moved = expectExit(0, "service", "install", "--host", "0.0.0.0", "--allowed-host", "draw.example").stdout;
+  assert.match(moved, /has no login/);
+  await until("the list, after the reinstall", async () => (await canvasPaths(port)).includes("other/two.excalidraw"));
+  s = statusJson(0);
   assert.equal(s.host, "0.0.0.0");
   assert.deepEqual(s.allowedHosts, ["draw.example"]);
   assert.notEqual(s.pid, pidBefore, "the reinstall replaced the running process, not left it serving");
@@ -296,6 +322,12 @@ try {
     } catch (e) {
       console.error(`service-real: cleanup: ${e.message}`);
     }
+  }
+  try {
+    if (configBefore !== undefined) fs.writeFileSync(configFile, configBefore);
+    else fs.rmSync(configFile, { force: true });
+  } catch (e) {
+    console.error(`service-real: cleanup: couldn't put back ${configFile}: ${e.message}`);
   }
   try {
     fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

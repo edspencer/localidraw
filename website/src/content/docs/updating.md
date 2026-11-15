@@ -39,7 +39,7 @@ found, without asking the registry again.
 5. **Downloads both versions** into npm's cache first, while the old one is still running, so a network failure
    changes nothing, and a rollback doesn't need the network.
 6. **Stops the service**, installs the new version, and starts it again through the new version's own
-   `service install --refresh`, keeping the folder, port and hosts the service had.
+   `service install --refresh`, keeping the port and hosts the service had.
 7. **Waits until the new version answers.**
 
 An open page doesn't hold an update up. While Localidraw is stopped, the page says it isn't running, keeps
@@ -118,16 +118,18 @@ wrong. It exits `1` if a check failed; warnings don't change that.
 
 - **Node** is the version Localidraw needs (22 or later).
 - **How it was installed**, and whether `update` can update it.
-- **The service**, if it's installed: whether the Node, Localidraw and folder it names are still there, and whether
-  it's the same install of Localidraw as the one you're running.
+- **The service**, if it's installed: whether the Node and Localidraw it names are still there, and whether it's the
+  same install of Localidraw as the one you're running.
 - **The version running** is the one installed.
 - **The port** is free, or held by Localidraw.
 - **Linger** is on (Linux), so the service keeps running when you log out.
 - **`~/.localidraw`** can be written.
 - **The page is built.**
-- **The folder** it serves can be read: the service's folder, or the current folder.
-- **The limit on file watches** (Linux) covers that folder. Localidraw watches each folder in it, and
-  `fs.inotify.max_user_watches` limits how many one user can watch. If the folder has more folders than that,
+- **The list**, `~/.localidraw/config.json`, parses. If it doesn't, it says what's wrong: fix the file, or delete it.
+- **The folders** it serves are there and can be read: Scratch, and every listed folder. One that isn't there is a
+  warning, naming it: mount it again, or `localidraw remove <name>`.
+- **The limit on file watches** (Linux) covers them. Localidraw watches each folder inside Scratch and every listed
+  folder, and `fs.inotify.max_user_watches` limits how many one user can watch. If they hold more folders than that,
   changes in some of them won't show until you reload. Raise the limit, or use `--poll`.
 - **A newer version** is available. `--offline` skips this one, which is the only check that asks the network.
 
@@ -157,5 +159,5 @@ These follow the [CLI contract](https://github.com/edspencer/cli-contract) that 
   stale lock by itself.
 - `update-check.json`, what the last `update`, `update --check` or `doctor` found, which `service status` repeats.
 
-Neither holds a drawing, and nothing in your folder of canvases changes. A new version reads the same `.excalidraw`
+Neither holds a drawing, and nothing in your folders of canvases changes. A new version reads the same `.excalidraw`
 files as the old one.

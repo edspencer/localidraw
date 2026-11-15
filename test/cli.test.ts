@@ -187,7 +187,7 @@ test("doctor --offline --json: one document with the spec's checks and Localidra
   assert.equal(doc.ok, r.status === 0, r.stdout);
   assert.ok([0, 1].includes(r.status!));
   const ids = doc.checks.map((c: { id: string }) => c.id);
-  for (const id of ["node-engines", "install-method", "unit", "running-version", "port", "linger", "data-home", "update", "page", "folder", "inotify"]) assert.ok(ids.includes(id), id);
+  for (const id of ["node-engines", "install-method", "unit", "running-version", "port", "linger", "data-home", "update", "page", "config", "folders", "inotify"]) assert.ok(ids.includes(id), id);
   assert.equal(doc.checks.find((c: { id: string }) => c.id === "update").status, "skip", "--offline asks nobody");
   for (const c of doc.checks) if (c.status === "fail") assert.ok(c.fix, `${c.id} fails without a fix`);
   const prose = run(["doctor", "--offline"]);
@@ -373,7 +373,7 @@ test("service status exits 4 with nothing installed, and --json prints one docum
   if (process.platform === "win32") {
     assert.equal(r.status, 4);
     assert.match(r.stdout, /isn't installed as a service: .*not win32 yet/);
-    assert.equal(run(["service", "install", empty]).status, 1, "nothing else is supported on Windows yet");
+    assert.equal(run(["service", "install"]).status, 1, "nothing else is supported on Windows yet");
     return;
   }
   assert.equal(r.status, 4, r.stderr);
@@ -397,7 +397,11 @@ test("service usage errors exit 2 with service's usage; service --help exits 0",
   const help = run(["service", "--help"]);
   assert.equal(help.status, 0);
   assert.match(help.stdout, /^localidraw service: /);
-  assert.match(help.stdout, /install \[folder\]/);
+  assert.match(help.stdout, /install {11}write the service/);
+  assert.match(help.stdout, /-o, --open/);
+  const folder = run(["service", "install", empty]);
+  assert.equal(folder.status, 2, "a folder is a usage error");
+  assert.match(folder.stderr, /^localidraw: `service install` takes no folder .*localidraw add /);
   assert.match(run(["--help"]).stdout, /service <command>/);
 });
 
@@ -441,5 +445,85 @@ test("serve rotates ~/.localidraw/logs/service.log once it's past 8 MB, and a fo
     }
   } finally {
     remove(own);
+  }
+});
+
+/**
+ * A fake browser: an `xdg-open` (and an `open`, for macOS) first on PATH, which writes the URL it's given to a file.
+ * So `--open` is tested as it runs, and no real browser starts.
+ */
+function fakeBrowser() {
+  const dir = mkdtempSync(join(tmpdir(), "localidraw-cli-open-"));
+  const log = join(dir, "opened.txt");
+  for (const name of ["xdg-open", "open"]) writeFileSync(join(dir, name), `#!/bin/sh\necho "$1" >> "${log}"\n`, { mode: 0o755 });
+  const opened = () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []);
+  return { env: { PATH: `${dir}:${process.env.PATH}` }, opened, remove: () => remove(dir) };
+}
+const browsers = { ...started, timeout: 60_000, skip: !built ? "the page isn't built (npm run build)" : process.platform === "win32" ? "the fake browser is a shell script" : false };
+
+/** Waits for `ok()`, every 50 ms, up to `ms`. */
+async function until(ok: () => boolean, what: string, ms = 10_000) {
+  const end = Date.now() + ms;
+  while (!ok()) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+test("--open (-o) opens the page once it answers", browsers, async () => {
+  const browser = fakeBrowser();
+  try {
+    for (const flag of ["--open", "-o"]) {
+      const s = launch([empty, "--port", "0", flag], { env: browser.env });
+      const url = await within(new Promise<string>((ok, fail) => {
+        s.child.stdout!.on("data", () => { const m = s.output().stdout.match(/^Localidraw \S+: (\S+)\n/); if (m) ok(m[1]); });
+        s.exited.then((code) => fail(new Error(`exited ${code}: ${s.output().stderr}`)), fail);
+      }), "the banner");
+      await until(() => browser.opened().includes(url), `${url} to be opened (${flag})`);
+      stop(s.child);
+      assert.equal(await s.exited, 0);
+    }
+    assert.equal(browser.opened().length, 2);
+  } finally {
+    browser.remove();
+  }
+});
+
+test("serving the list on a port a Localidraw serving the list holds prints its URL and exits 0; anything else exits 1", browsers, async () => {
+  const browser = fakeBrowser();
+  const first = launch(["--port", "0"], { env: browser.env });
+  try {
+    const url = await within(new Promise<string>((ok, fail) => {
+      first.child.stdout!.on("data", () => { const m = first.output().stdout.match(/^Localidraw \S+: (\S+)\n/); if (m) ok(m[1]); });
+      first.exited.then((code) => fail(new Error(`exited ${code}: ${first.output().stderr}`)), fail);
+    }), "the first one's banner");
+    const port = new URL(url).port;
+    const again = launch(["--port", port, "--open"], { env: browser.env });
+    assert.equal(await again.exited, 0, again.output().stderr);
+    assert.equal(again.output().stdout, `Localidraw is already running: ${url}\n`);
+    assert.match(again.output().stderr, /serves Scratch and your folders already/);
+    await until(() => browser.opened().includes(url), "the one running to be opened");
+    const quiet = launch(["serve", "--port", port, "-q"], { env: browser.env });
+    assert.equal(await quiet.exited, 0);
+    assert.deepEqual([quiet.output().stdout, quiet.output().stderr], [`Localidraw is already running: ${url}\n`, ""]);
+    // One folder alone is never the same thing: the port is in use, as before.
+    const one = launch([empty, "--port", port]);
+    assert.equal(await one.exited, 1);
+    assert.match(one.output().stderr, /^localidraw: port \d+ is in use/);
+  } finally {
+    stop(first.child);
+    await first.exited;
+    browser.remove();
+  }
+  // A Localidraw serving one folder on that port isn't serving the list: 1.
+  const folder = serve([empty, "--port", "0"]);
+  try {
+    const port = new URL(await folder.url).port;
+    const list = launch(["--port", port]);
+    assert.equal(await list.exited, 1, list.output().stdout);
+    assert.match(list.output().stderr, /port \d+ is in use: is Localidraw already running\?/);
+  } finally {
+    stop(folder.child);
+    await folder.exited;
   }
 });

@@ -1,15 +1,14 @@
 // `localidraw service install | uninstall | start | stop | restart | status | logs` (the CLI contract's SPEC §1, §7):
-// Localidraw as a per-user service, a launchd LaunchAgent on macOS and a systemd --user unit on Linux, serving one
-// folder from login on.
+// Localidraw as a per-user service, a launchd LaunchAgent on macOS and a systemd --user unit on Linux, serving the list
+// (Scratch and the folders in ~/.localidraw/config.json) from login on.
 //
-// - **One service per machine.** The unit is `net.edspencer.localidraw` / `localidraw.service`, and the folder it
-//   serves is recorded in it, as `serve <folder>`. Installing another folder moves the service there.
-// - **The unit records everything it runs with**: the folder, the port, the host, the allowed hosts and --poll, as
-//   flags. Not the environment: `LOCALIDRAW_HOST` and the rest are `serve`'s, and a service that read them from
+// - **One service per machine.** The unit is `net.edspencer.localidraw` / `localidraw.service`, and it runs `serve`
+//   with no folder. `install` takes none: `localidraw add <folder>` lists one, and the service shows it at once.
+// - **The unit records everything it runs with**: the port, the host, the allowed hosts and --poll, as flags. Not the environment: `LOCALIDRAW_HOST` and the rest are `serve`'s, and a service that read them from
 //   wherever it was installed would change when that shell did. So `install --refresh` (and `update`, which runs it
 //   through the new CLI) re-renders a unit from the unit itself.
-// - **Its home is `~/.localidraw`**: the log (`logs/service.log`), its working folder (`service/`) and `runtime.json`.
-//   Never drawings. A folder inside it is refused.
+// - **Its home is `~/.localidraw`**: the log (`logs/service.log`), its working folder (`service/`), `runtime.json`,
+//   and the list it serves (`config.json`). Never drawings, but for Scratch (`drawings/`).
 // - **The hosting rules hold here too** (AGENTS.md): it listens on 127.0.0.1 unless `--host` says otherwise, and a
 //   host beyond loopback needs `--allowed-host`, at install as at `serve`.
 //
@@ -17,10 +16,10 @@
 // around them and what they print. Everything that touches the machine comes in through `ServiceContext`, so the
 // whole lifecycle is tested with a fake runner on any OS (test/service.test.ts), and for real in CI
 // (scripts/service-real.mjs).
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { request } from "node:http";
 import { connect } from "node:net";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { EXIT } from "./contract/exit-codes.ts";
 import { createOutput, UsageError, type Output, type OutputStream } from "./contract/output.ts";
 import { guardBusy, type Nouns } from "./contract/busy-client.ts";
@@ -33,6 +32,8 @@ import { missingPaths } from "./contract/service/path-env.ts";
 import { buildSpec, serviceLogPath } from "./contract/service/spec.ts";
 import { renderUnit } from "./contract/service/systemd.ts";
 import { readUpdateCheck, updateNotice, updateSummary, type UpdateSummary } from "./contract/update-check.ts";
+import { readConfig, scratchDir } from "./folders.ts";
+import { openInBrowser } from "./open.ts";
 import { localidrawHome, parseAllowedHosts, parsePoll, requireAllowedHost } from "./options.ts";
 import { pkg } from "./package.ts";
 import { DEFAULT_PORT, parsePort } from "./port.ts";
@@ -44,27 +45,28 @@ export const LOCALIDRAW_SERVICE: ServiceIdentity = {
   tool: "localidraw",
   label: "net.edspencer.localidraw",
   unit: "localidraw.service",
-  description: "Localidraw: a local Excalidraw for a folder of .excalidraw files",
+  description: "Localidraw: a local Excalidraw for the .excalidraw files on your machine",
   documentation: "https://localidraw.edspencer.net/service/",
 };
 
 const ACTIONS = ["install", "uninstall", "start", "stop", "restart", "status", "logs"] as const;
 type Action = (typeof ACTIONS)[number];
 
-export const SERVICE_USAGE = `Usage: localidraw service install [folder] [--port <n>] [--host <addr> --allowed-host <name>…] [--poll [ms]]
-                                 [--refresh] [--dry-run] [--from-checkout]
+export const SERVICE_USAGE = `Usage: localidraw service install [--port <n>] [--host <addr> --allowed-host <name>…] [--poll [ms]]
+                                 [--refresh] [--dry-run] [--from-checkout] [-o]
                                  [--json]
-       localidraw service uninstall | start | stop [--force] | restart [--force]   [--json]
+       localidraw service start [-o] | uninstall | stop [--force] | restart [--force]   [--json]
        localidraw service status [--json]
        localidraw service logs [-f] [-n <lines>]
 `;
 
-export const SERVICE_HELP = `localidraw service: run Localidraw in the background, from login on, serving one folder
+export const SERVICE_HELP = `localidraw service: run Localidraw in the background, from login on, serving Scratch and your folders
 
 ${SERVICE_USAGE}
-  install [folder]  write the service (a launchd LaunchAgent on macOS, a systemd --user unit on Linux), start it,
-                    and wait until it answers. There's one per machine; installing another folder moves it there.
-                    A reinstall keeps the folder, port and host it finds unless you give new ones.
+  install           write the service (a launchd LaunchAgent on macOS, a systemd --user unit on Linux), start it,
+                    and wait until it answers. There's one per machine, and it serves the list: Scratch
+                    (~/.localidraw/drawings) and the folders \`localidraw add <folder>\` lists, which show at once,
+                    with no restart. A reinstall keeps the port and host it finds unless you give new ones.
     --port <n>      the port (default ${DEFAULT_PORT})
     --host <addr>   the address to listen on (default ${DEFAULT_HOST}). Anything but loopback needs --allowed-host.
     --allowed-host <name>
@@ -73,26 +75,26 @@ ${SERVICE_USAGE}
     --refresh       re-write the installed service from what it records (\`update\` runs this)
     --dry-run       print the unit file it would write, and write nothing
     --from-checkout install from a git checkout rather than an installed package
+    -o, --open      open it in your browser once it answers
   uninstall         stop it and remove the unit. The log and your canvases stay.
-  start             start it, and wait until it answers
+  start [-o]        start it, and wait until it answers; -o opens it in your browser then
   stop              stop it until \`service start\`, or the next login. It stays installed.
   restart           stop and start it, re-writing the unit first if the Node or Localidraw it names has gone.
                     Both exit 75, doing nothing, while a canvas is being saved; --force stops it anyway.
-  status [--json]   installed? running? answering? which version, folder and port? Exits 0, 3 (not running)
-                    or 4 (not installed).
+  status [--json]   installed? running? answering? which version and port, and how many folders? Exits 0,
+                    3 (not running) or 4 (not installed).
   logs [-f] [-n <lines>]
                     the last lines of ~/.localidraw/logs/service.log (default ${DEFAULT_LOG_LINES}); -f follows it
 
   --json            on every command but logs: one JSON document on stdout, what status reports plus ok, action
                     and (when it failed) error; what it says for a person goes to stderr. The exit code is the same.
 
-The service reads only its flags, not $LOCALIDRAW_HOST and the rest. Its log, its working folder and runtime.json
-are in ~/.localidraw; your canvases stay in the folder it serves. More: https://localidraw.edspencer.net/service/
+The service reads only its flags, not $LOCALIDRAW_HOST and the rest. Its log, its working folder, runtime.json and
+the list are in ~/.localidraw; your canvases stay in their folders. More: https://localidraw.edspencer.net/service/
 `;
 
-/** What `service install` and the unit agree on: everything `serve` is run with. */
+/** What `service install` and the unit agree on: everything `serve` is run with. It serves the list, so no folder. */
 export interface Settings {
-  folder: string;
   port: number;
   host: string;
   allowedHosts: string[];
@@ -102,7 +104,7 @@ export interface Settings {
 /** `serve` and its flags, as the unit runs them. Every one is named, so a later default can't move the service. */
 export function serveArgs(s: Settings): string[] {
   return [
-    "serve", s.folder,
+    "serve",
     "--port", String(s.port),
     "--host", s.host,
     ...s.allowedHosts.flatMap((h) => ["--allowed-host", h]),
@@ -110,9 +112,23 @@ export function serveArgs(s: Settings): string[] {
   ];
 }
 
-/** The settings an installed unit records, read back from its arguments (Node and the script already taken off). */
+/**
+ * The settings an installed unit records, read back from its arguments (Node and the script already taken off). A
+ * folder, which a unit from before 0.9 names (`serve <folder>`), isn't a setting: the service serves the list now, and
+ * a refresh or a restart writes the unit without it. `namesAFolder` says whether there was one.
+ */
 export function settingsOf(argv: readonly string[]): Partial<Settings> {
+  return readUnitArgs(argv).settings;
+}
+
+/** Whether the unit names a folder, as one written before 0.9 does: it serves that folder alone, not the list. */
+export function namesAFolder(argv: readonly string[]): boolean {
+  return readUnitArgs(argv).folder !== undefined;
+}
+
+function readUnitArgs(argv: readonly string[]): { settings: Partial<Settings>; folder?: string } {
   const out: Partial<Settings> = {};
+  let folder: string | undefined;
   let i = 0;
   if (argv[0] === "serve") i = 1;
   for (; i < argv.length; i++) {
@@ -123,9 +139,9 @@ export function settingsOf(argv: readonly string[]): Partial<Settings> {
     else if (flag === "--host") out.host = next();
     else if (flag === "--allowed-host") { const h = next(); if (h !== undefined) (out.allowedHosts ??= []).push(h); }
     else if (flag === "--poll") { const v = inline ?? (/^\d+$/.test(argv[i + 1] ?? "") ? argv[++i] : "true"); try { out.poll = parsePoll(v); } catch { /* not ours to judge here */ } }
-    else if (!a.startsWith("-") && out.folder === undefined) out.folder = a;
+    else if (!a.startsWith("-") && folder === undefined) folder = a;
   }
-  return out;
+  return { settings: out, ...(folder !== undefined ? { folder } : {}) };
 }
 
 /** The URL a person opens: localhost for loopback and every-address binds, as `serve`'s banner says. */
@@ -195,6 +211,8 @@ export interface ServiceContext {
   portTaken?: (url: string) => Promise<boolean>;
   /** Injected for tests: how the busy check asks `/api/busy` (default localFetch). */
   fetch?: typeof fetch;
+  /** Injected for tests: how --open opens the page (default openInBrowser, open.ts). */
+  open?: (url: string) => void;
 }
 
 /** What `/api/busy` counts (server.ts's BusyCounts), as the CLI says them: `Localidraw is busy: 1 canvas save is running.` */
@@ -202,7 +220,6 @@ export const BUSY_NOUNS: Nouns = { canvas: ["canvas save", "canvas saves"], libr
 
 interface Options {
   action: Action;
-  folder?: string;
   port?: number;
   host?: string;
   allowedHosts?: string[];
@@ -214,6 +231,7 @@ interface Options {
   json: boolean;
   follow: boolean;
   lines?: number;
+  open: boolean;
 }
 
 /** Which flags each command can act on. Anything else is a usage error (SPEC §1), not parsed and dropped. */
@@ -223,8 +241,9 @@ const SCOPED: Record<string, readonly Action[]> = {
   "--force": ["stop", "restart"],
   "--json": ["install", "uninstall", "start", "stop", "restart", "status"],
   "--follow": ["logs"], "--lines": ["logs"],
+  "--open": ["install", "start"],
 };
-const ALIASES: Record<string, string> = { "-f": "--follow", "-n": "--lines" };
+const ALIASES: Record<string, string> = { "-f": "--follow", "-n": "--lines", "-o": "--open" };
 
 /** The arguments after `service`. Returns "help" for `--help`. */
 export function parseServiceArgs(args: readonly string[]): Options | "help" {
@@ -234,7 +253,7 @@ export function parseServiceArgs(args: readonly string[]): Options | "help" {
   if (!(ACTIONS as readonly string[]).includes(action)) {
     throw new UsageError(action.startsWith("-") ? `\`service\` takes a command first (${ACTIONS.join(", ")})` : `unknown service command ${action}`);
   }
-  const o: Options = { action: action as Action, refresh: false, dryRun: false, fromCheckout: false, force: false, json: false, follow: false };
+  const o: Options = emptyOptions(action as Action);
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     const eq = a.startsWith("--") ? a.indexOf("=") : -1;
@@ -246,10 +265,9 @@ export function parseServiceArgs(args: readonly string[]): Options | "help" {
       return v;
     };
     if (!flag.startsWith("-")) {
-      if (o.action !== "install") throw new UsageError(`\`service ${o.action}\` takes no folder (got ${a})`);
-      if (o.folder !== undefined) throw new UsageError(`one folder only (got ${o.folder} and ${a})`);
-      o.folder = a;
-      continue;
+      // The service serves the list, so a folder joins that instead.
+      if (o.action === "install") throw new UsageError(`\`service install\` takes no folder (got ${a}): the service serves Scratch and the folders you list. To list this one: localidraw add ${/\s/.test(a) ? JSON.stringify(a) : a}`);
+      throw new UsageError(`\`service ${o.action}\` takes no folder (got ${a})`);
     }
     const scope = SCOPED[flag];
     if (scope === undefined) throw new UsageError(`unknown option ${a}`);
@@ -273,6 +291,7 @@ export function parseServiceArgs(args: readonly string[]): Options | "help" {
     else if (flag === "--force") o.force = true;
     else if (flag === "--json") o.json = true;
     else if (flag === "--follow") o.follow = true;
+    else if (flag === "--open") o.open = true;
   }
   if (o.refresh && o.dryRun) throw new UsageError("--refresh and --dry-run don't go together: --dry-run on its own prints what a reinstall would write");
   return o;
@@ -310,7 +329,10 @@ export interface StatusReport {
   unit: string | null;
   log: string | null;
   manager: "launchd" | "systemd" | null;
-  folder: string | null;
+  /** How many folders ~/.localidraw/config.json lists (the service serves them and Scratch); null if it doesn't parse. */
+  folders: number | null;
+  /** Scratch, ~/.localidraw/drawings, which it always serves. */
+  scratch: string;
   host: string | null;
   allowedHosts: string[];
   poll: number | null;
@@ -393,8 +415,6 @@ interface Outcome {
   /** install --dry-run: the unit it would have written. */
   dryRun?: boolean;
   rendered?: string;
-  /** install: the folder the service served before, when installing another folder moved it. */
-  movedFrom?: string;
   /** uninstall: whether there was a service to remove. */
   wasInstalled?: boolean;
   /** start and stop: whether it was running before. */
@@ -444,27 +464,18 @@ function sayUpdate(out: Output, home: string) {
 }
 
 function notInstalled(manager: ServiceManager, out: Output): number {
-  out.say(`Localidraw isn't installed as a service (looked for ${manager.unitPath}).\n  To install it: localidraw service install <folder>`);
+  out.say(`Localidraw isn't installed as a service (looked for ${manager.unitPath}).\n  To install it: localidraw service install`);
   return EXIT.NOT_INSTALLED;
 }
 
 /** The settings to install with: the flags, then what the installed unit records, then the defaults. */
-function resolveSettings(o: Options, recorded: Partial<Settings>, home: string): Settings {
-  const given = o.folder ?? recorded.folder;
-  if (given === undefined) throw new UsageError("which folder? `localidraw service install <folder>` (the folder of canvases it serves)");
-  const abs = resolve(given);
-  if (!existsSync(abs) || !statSync(abs).isDirectory()) throw new UsageError(`${abs} isn't a folder`);
-  const folder = realpathSync(abs);
-  const rel = relative(realpathOrSelf(home), folder);
-  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
-    throw new UsageError(`${folder} is ${rel === "" ? "" : `inside ${home}, `}Localidraw's own folder (logs and runtime files). Keep your canvases somewhere else.`);
-  }
+function resolveSettings(o: Options, recorded: Partial<Settings>): Settings {
   const host = o.host || recorded.host || DEFAULT_HOST;
   // New --allowed-host flags replace the recorded ones, as they replace $LOCALIDRAW_ALLOWED_HOSTS for serve.
   const allowedHosts = parseAllowedHosts(o.allowedHosts ?? recorded.allowedHosts ?? []);
   requireAllowedHost(host, allowedHosts);
   const poll = o.poll !== undefined ? parsePoll(o.poll) : recorded.poll;
-  return { folder, port: o.port ?? recorded.port ?? DEFAULT_PORT, host, allowedHosts, ...(poll !== undefined ? { poll } : {}) };
+  return { port: o.port ?? recorded.port ?? DEFAULT_PORT, host, allowedHosts, ...(poll !== undefined ? { poll } : {}) };
 }
 
 function realpathOrSelf(p: string): string {
@@ -482,7 +493,7 @@ function checkWhereFrom(o: Options, ctx: ServiceContext): string {
     throw new Error(`this Localidraw is running from npx's cache (${root}), which npm clears, and the service would stop working when it did.
   Install it first, then install the service from that:
     npm install -g localidraw
-    localidraw service install <folder>`);
+    localidraw service install`);
   }
   if (!underNodeModules(root) && !o.fromCheckout) {
     throw new Error(`this Localidraw is a checkout (${root}), not an installed package: a service would run whatever is built here next.
@@ -502,7 +513,7 @@ async function install(o: Options, ctx: ServiceContext, manager: ServiceManager,
   // defaults. `update` runs it through the new CLI, and a quiet first install would be a service nobody asked for.
   if (o.refresh && !existing.registered) return notInstalled(manager, out);
   const recorded = existing.registered ? settingsOf(existing.argv) : {};
-  const settings = resolveSettings(o, recorded, home);
+  const settings = resolveSettings(o, recorded);
   const scriptPath = checkWhereFrom(o, ctx);
   const spec = buildSpec({ nodePath: ctx.nodePath, scriptPath, args: serveArgs(settings), home, ...(ctx.pathEnv !== undefined ? { pathEnv: ctx.pathEnv } : {}) });
 
@@ -527,10 +538,6 @@ async function install(o: Options, ctx: ServiceContext, manager: ServiceManager,
   }
 
   if (o.refresh) out.say(`Re-writing ${manager.unitPath}\n  Keeping: localidraw ${spec.args.join(" ")}`);
-  else if (existing.registered && recorded.folder !== undefined && recorded.folder !== settings.folder) {
-    outcome.movedFrom = recorded.folder;
-    out.say(`There's one Localidraw service per machine: moving it from ${recorded.folder} to ${settings.folder}.`);
-  }
   out.say(manager.platform === "darwin"
     ? "Installing the LaunchAgent and starting Localidraw (macOS may take a few seconds to allow the background item)…"
     : "Installing the user service and starting Localidraw…");
@@ -548,15 +555,33 @@ async function install(o: Options, ctx: ServiceContext, manager: ServiceManager,
   }
   out.say([
     `✓ Localidraw is installed as a ${describe(manager)}, and running at ${url}`,
-    `  Folder: ${settings.folder}`,
+    `  Serves: ${servesLine(home)}`,
     `  Unit:   ${manager.unitPath}`,
     `  Log:    ${spec.logPath}   (localidraw service logs -f)`,
     ...(isLoopbackAddress(settings.host) ? [] : [`  Localidraw has no login: anyone who can reach ${settings.host}:${settings.port} can read and change these canvases. Put it behind a reverse proxy that does authentication.`]),
     "",
-    `It starts again when you log in. \`localidraw service status\` says how it is; \`localidraw service uninstall\` removes it.`,
+    `It starts again when you log in. \`localidraw add <folder>\` lists a folder, and it shows at once.`,
+    `\`localidraw service status\` says how it is; \`localidraw service uninstall\` removes it.`,
     ...(linger !== undefined ? ["", linger] : []),
   ].join("\n"));
+  if (o.open) (ctx.open ?? openInBrowser)(url);
   return EXIT.OK;
+}
+
+/** How many folders the list has, or why it can't be read. */
+function listedFolders(home: string): { count: number } | { error: string } {
+  try {
+    return { count: readConfig(home).folders.length };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+}
+
+/** What the service serves, for a person: Scratch and the listed folders. */
+function servesLine(home: string): string {
+  const listed = listedFolders(home);
+  const folders = "count" in listed ? `${listed.count} folder${listed.count === 1 ? "" : "s"} (localidraw folders lists them)` : `the folders in ${join(home, "config.json")}, which doesn't parse`;
+  return `Scratch (${scratchDir(home)}) and ${folders}`;
 }
 
 function lastLines(file: string, n = 20): string {
@@ -577,10 +602,16 @@ function uninstall(manager: ServiceManager, out: Output, home: string, outcome: 
   return EXIT.OK;
 }
 
+/** The report's `folders` and `scratch`: what the service serves, or would. */
+function listFields(home: string): Pick<StatusReport, "folders" | "scratch"> {
+  const listed = listedFolders(home);
+  return { folders: "count" in listed ? listed.count : null, scratch: scratchDir(home) };
+}
+
 function emptyReport(home: string, unit: string | null, manager: StatusReport["manager"], warnings: string[], linger: boolean | null = null): StatusReport {
   return {
     installed: false, running: false, answering: false, installedVersion: null, runningVersion: null, port: null, url: null,
-    pid: null, unit, log: null, manager, folder: null, host: null, allowedHosts: [], poll: null, home, node: null, cli: null, linger, warnings,
+    pid: null, unit, log: null, manager, ...listFields(home), host: null, allowedHosts: [], poll: null, home, node: null, cli: null, linger, warnings,
   };
 }
 
@@ -607,14 +638,14 @@ export async function buildStatus(ctx: ServiceContext, manager: ServiceManager, 
   // Node's prefix) is what the service runs, and what `update` from here wouldn't touch.
   const thisCli = join(realpathOrSelf(ctx.pkgRoot), "dist", "server", "cli.js");
   if (state.cliPath !== undefined && !gone.includes(state.cliPath) && realpathOrSelf(state.cliPath) !== thisCli) {
-    warnings.push(`The service runs another install of Localidraw (${state.cliPath}), not this one (${thisCli}). To run this one, \`localidraw service install\` from it; it keeps the folder, port and host.`);
+    warnings.push(`The service runs another install of Localidraw (${state.cliPath}), not this one (${thisCli}). To run this one, \`localidraw service install\` from it; it keeps the port and host.`);
   }
-  // A unit an older Localidraw wrote: one that doesn't restart after a clean exit, or logs somewhere else.
-  const oldFormat = !state.keepsAlive || log !== serviceLogPath(home);
-  if (oldFormat) warnings.push("The unit was written by an older Localidraw. `localidraw service restart` re-writes it.");
-  if (s.folder !== undefined && !existsSync(s.folder)) {
-    warnings.push(`The folder it serves, ${s.folder}, isn't there any more, so it can't start. Install it on another folder: localidraw service install <folder>`);
-  }
+  // A unit an older Localidraw wrote: one that doesn't restart after a clean exit, logs somewhere else, or serves one
+  // folder (before 0.9) rather than the list.
+  const oldFormat = isOldFormat(state, home);
+  if (oldFormat) warnings.push(`The unit was written by an older Localidraw${namesAFolder(state.argv) ? ", and serves one folder rather than the list" : ""}. \`localidraw service restart\` re-writes it.`);
+  const listed = listedFolders(home);
+  if ("error" in listed) warnings.push(`${listed.error}, so it serves the folders it listed before (or Scratch alone, if it started with it broken). Fix the file, or delete it.`);
   if (installedVersion !== undefined && health?.version !== undefined && installedVersion !== health.version) {
     warnings.push(`It's running ${health.version}, but ${installedVersion} is installed: \`localidraw service restart\` to run the new one.`);
   }
@@ -633,7 +664,7 @@ export async function buildStatus(ctx: ServiceContext, manager: ServiceManager, 
     unit: manager.unitPath,
     log,
     manager: kind,
-    folder: s.folder ?? null,
+    ...listFields(home),
     host,
     allowedHosts: s.allowedHosts ?? [],
     poll: s.poll ?? null,
@@ -664,7 +695,7 @@ async function status(o: Options, ctx: ServiceContext, manager: ServiceManager, 
   out.say([
     headline,
     `  Version: ${version}`,
-    `  Folder:  ${report.folder ?? "unknown"}`,
+    `  Serves:  ${servesLine(home)}`,
     `  Listens: ${report.host}:${report.port}${report.allowedHosts.length ? `, answering to localhost, ${report.allowedHosts.join(", ")}` : ""}`,
     `  Watches: ${report.poll !== null ? `by checking the files every ${report.poll} ms` : "by file events"}`,
     `  Unit:    ${report.unit}`,
@@ -685,6 +716,7 @@ async function startOrRestart(o: Options, ctx: ServiceContext, manager: ServiceM
   if (o.action === "start") outcome.wasRunning = state.running;
   if (o.action === "start" && state.running) {
     out.say(`Localidraw is already running${state.pid !== undefined ? ` (pid ${state.pid})` : ""} at ${url}`);
+    if (o.open) (ctx.open ?? openInBrowser)(url);
     return EXIT.OK;
   }
   if (o.action === "restart") {
@@ -694,10 +726,10 @@ async function startOrRestart(o: Options, ctx: ServiceContext, manager: ServiceM
     // A unit whose Node or Localidraw has gone, or that an older Localidraw wrote, is re-written first (SPEC §1).
     // Installing it again is a restart in both managers.
     const gone = missingPaths([state.nodePath, state.cliPath]).length > 0;
-    const old = !state.keepsAlive || (state.logPath ?? serviceLogPath(home)) !== serviceLogPath(home);
+    const old = isOldFormat(state, home);
     outcome.rewritten = gone || old;
     if (gone || old) {
-      const settings = resolveSettings({ ...emptyOptions("install") }, s, home);
+      const settings = resolveSettings(emptyOptions("install"), s);
       const scriptPath = checkWhereFrom({ ...emptyOptions("install"), fromCheckout: true }, ctx);
       const spec = buildSpec({ nodePath: ctx.nodePath, scriptPath, args: serveArgs(settings), home, ...(ctx.pathEnv !== undefined ? { pathEnv: ctx.pathEnv } : {}) });
       out.say(`Re-writing ${manager.unitPath}, which ${gone ? "names a Node or a Localidraw that has gone" : "an older Localidraw wrote"}, and restarting…`);
@@ -718,11 +750,17 @@ async function startOrRestart(o: Options, ctx: ServiceContext, manager: ServiceM
   }
   const after = manager.status();
   out.say(`✓ Localidraw is running${after.pid !== undefined ? ` (pid ${after.pid})` : ""} at ${url}`);
+  if (o.open) (ctx.open ?? openInBrowser)(url);
   return EXIT.OK;
 }
 
+/** A unit an older Localidraw wrote, which `restart` re-writes: no restart after a clean exit, another log, or a folder. */
+function isOldFormat(state: ServiceState, home: string): boolean {
+  return !state.keepsAlive || (state.logPath ?? serviceLogPath(home)) !== serviceLogPath(home) || namesAFolder(state.argv);
+}
+
 function emptyOptions(action: Action): Options {
-  return { action, refresh: false, dryRun: false, fromCheckout: false, force: false, json: false, follow: false };
+  return { action, refresh: false, dryRun: false, fromCheckout: false, force: false, json: false, follow: false, open: false };
 }
 
 async function stop(o: Options, ctx: ServiceContext, manager: ServiceManager, out: Output, home: string, outcome: Outcome): Promise<number> {

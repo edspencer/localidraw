@@ -48,8 +48,8 @@ export function safeHomeDir(): string {
 }
 
 /**
- * Localidraw's own home, `~/.localidraw`: `runtime.json`, the service's log and working folder, and (from `update`)
- * its lock. Never drawings: those stay in the folder it serves.
+ * Localidraw's own home, `~/.localidraw`: `runtime.json`, the list (`config.json`), the service's log and working
+ * folder, and (from `update`) its lock. Never drawings, but for Scratch (`drawings/`): the rest stay in their folders.
  */
 export function localidrawHome(homeDir: string = safeHomeDir()): string {
   return join(homeDir, ".localidraw");

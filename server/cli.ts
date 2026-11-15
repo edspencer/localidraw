@@ -1,24 +1,25 @@
 #!/usr/bin/env node
-// localidraw [serve] [folder] [--port <n>] [--open] [--quiet] [--host <addr> --allowed-host <name>…] [--poll [ms]]
+// localidraw [serve] [folder] [--port <n>] [-o|--open] [-q|--quiet] [--host <addr> --allowed-host <name>…] [--poll [ms]]
 // localidraw service install | uninstall | start | stop | restart | status | logs (service.ts)
 // localidraw busy [--json] · update [--check] [--to] [--yes] [--force] [--json] (update.ts) · doctor [--json] [--offline] (doctor.ts)
-import { spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { runBusyCommand } from "./contract/busy-client.ts";
 import { EXIT } from "./contract/exit-codes.ts";
+import { fetchHealth, waitForReady } from "./contract/health.ts";
 import { createOutput, exitQuietlyOnEpipe, reportUsageError, UsageError } from "./contract/output.ts";
-import { removeRuntimeFile, writeRuntimeFile } from "./contract/runtime-file.ts";
+import { readLiveRuntimeFile, removeRuntimeFile, writeRuntimeFile } from "./contract/runtime-file.ts";
 import { startLogRotation } from "./contract/service/rotate.ts";
 import { serviceLogPath } from "./contract/service/spec.ts";
 import { DEFAULT_PORT, parsePort } from "./port.ts";
 import { hasCanvases, listProjects } from "./files.ts";
 import { isThere, listedFolderHolding, readConfig, SCRATCH, scratchDir, type FolderEntry } from "./folders.ts";
 import { ADD_USAGE, FOLDERS_USAGE, REMOVE_USAGE, runFolders } from "./folders-cli.ts";
+import { openInBrowser } from "./open.ts";
 import { localidrawHome, parseAllowedHosts, parsePoll, requireAllowedHost, safeHomeDir } from "./options.ts";
 import { pkg, pkgRoot, webDir } from "./package.ts";
 import { isLoopbackAddress } from "./security.ts";
-import { BUSY_NOUNS, localFetch, realContext, runService, SERVICE_USAGE } from "./service.ts";
+import { BUSY_NOUNS, localFetch, probeUrlFor, realContext, runService, SERVICE_USAGE } from "./service.ts";
 import { DEFAULT_HOST, DEFAULT_POLL, startServer } from "./server.ts";
 import { parseUpdateArgs, runUpdateCommand, UPDATE_HELP, UPDATE_USAGE } from "./update.ts";
 import { diagnose, doctorCode, DOCTOR_HELP, DOCTOR_USAGE, parseDoctorArgs, renderChecks } from "./doctor.ts";
@@ -29,7 +30,7 @@ const COMMANDS = ["serve", "add", "remove", "folders", "service", "update", "upg
 /** How long a stop waits for the requests under way before it cuts them off. */
 const DRAIN_MS = 5000;
 
-const USAGE = `Usage: localidraw [serve] [folder] [--port <n>] [--open] [-q] [--host <addr> --allowed-host <name>…] [--poll [ms]]
+const USAGE = `Usage: localidraw [serve] [folder] [--port <n>] [-o] [-q] [--host <addr> --allowed-host <name>…] [--poll [ms]]
        localidraw add <folder> [--name <name>] · remove <name|folder> · folders   [--json]
        localidraw service install | uninstall | start | stop | restart | status | logs   (localidraw service --help)
        localidraw busy [--json]
@@ -74,7 +75,7 @@ Usage: localidraw [serve] [folder] [options]
 
 Options:
   --port <n>        the port (default ${DEFAULT_PORT}, or $PORT)
-  --open            open it in your browser
+  -o, --open        open it in your browser, once it answers
   -q, --quiet       print only the first line, \`Localidraw <version>: <url>\`
   -v, --version     print the version
   -h, --help        print this
@@ -90,7 +91,9 @@ Hosting it (see https://localidraw.edspencer.net/self-hosting/):
                     (or $LOCALIDRAW_POLL: the ms, or true)
 
 Ctrl-C or SIGTERM stops it once the saves under way are written, and it exits 0. It exits 1 if it fails (the
-port is in use, say), and 2 for a usage error. While it runs, ~/.localidraw/runtime.json says where.
+port is in use, say), and 2 for a usage error. While it runs, ~/.localidraw/runtime.json says where. With no
+folder, a port held by a Localidraw that serves the list already (the service, say) isn't a failure: it prints
+that one's address (and opens it, with --open) and exits 0.
 
 By default it listens on 127.0.0.1 only, and it saves to the files as you draw. It has no login of its own: when
 you host it, put it behind a reverse proxy that does authentication.
@@ -117,7 +120,7 @@ async function main(args: string[]): Promise<number | undefined> {
     const a = args[i];
     if (a === "-h" || a === "--help") { out.say(HELP.trimEnd()); return EXIT.OK; }
     else if (a === "-v" || a === "--version") { out.say(pkg.version); return EXIT.OK; }
-    else if (a === "--open") open = true;
+    else if (a === "-o" || a === "--open") open = true;
     else if (a === "-q" || a === "--quiet") quiet = true;
     else if (a === "--port") portArg = value(++i, "a number");
     else if (a.startsWith("--port=")) portArg = a.slice("--port=".length);
@@ -165,8 +168,14 @@ async function main(args: string[]): Promise<number | undefined> {
   try {
     running = await startServer({ ...(root !== undefined ? { root } : { home }), port, webDir, host, allowedHosts, poll });
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") return out.error(`port ${port} is in use: is Localidraw already running? (try --port)`);
-    throw err;
+    if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
+    // Serving the list, the one already serving it (the service, or another terminal) is as good: say where it is.
+    const there = root === undefined ? await servingTheList(home, host, port) : undefined;
+    if (there === undefined) return out.error(`port ${port} is in use: is Localidraw already running? (try --port)`);
+    process.stdout.write(`Localidraw is already running: ${there}\n`);
+    if (!quiet) process.stderr.write(`It serves Scratch and your folders already, so this one isn't needed. \`localidraw service status\` says more, if it's the service.\n`);
+    if (open) openInBrowser(there);
+    return EXIT.OK;
   }
   const { url, drain } = running;
   // ~/.localidraw/runtime.json (SPEC §4): how `localidraw busy` and `update` find this instance. 0600, written once
@@ -239,13 +248,33 @@ async function main(args: string[]): Promise<number | undefined> {
   ].join("\n"));
   if (root === undefined) hintAboutHere(home);
 
+  // Once it answers, as a person would reach it: through the guard, by the address it listens on.
   if (open) {
-    // On Windows, rundll32's FileProtocolHandler hands the URL to the default browser, as `start` would, without a
-    // shell (`explorer <url>` works too, but it exits 1 and mangles some URLs).
-    const [cmd, cmdArgs]: [string, string[]] = process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]] : ["xdg-open", [url]];
-    spawn(cmd, cmdArgs, { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+    void waitForReady({ url: probeUrlFor(host, Number(new URL(url).port)), fetch: localFetch }).then((ready) => {
+      if (ready === "ready") openInBrowser(url);
+      else out.warn(`localidraw: ${url} didn't answer, so it wasn't opened.`);
+    });
   }
   return undefined;
+}
+
+/**
+ * The URL of the Localidraw that holds `port` and serves the list, if that's what holds it: the one
+ * ~/.localidraw/runtime.json names, alive, answering `/api/health`, and serving the list (`/api/projects` says
+ * `root: null`; serving one folder, it names the folder). Anything else holding the port is a failure, as before.
+ */
+async function servingTheList(home: string, host: string, port: number): Promise<string | undefined> {
+  const live = readLiveRuntimeFile(home);
+  if (!live || live.port !== port) return undefined;
+  const at = probeUrlFor(host, port);
+  if (!(await fetchHealth({ url: at, fetch: localFetch }))?.ok) return undefined;
+  try {
+    const res = await localFetch(new URL("/api/projects", at), { signal: AbortSignal.timeout(5000) });
+    const body = res.ok ? (await res.json()) as { root?: unknown } : undefined;
+    return body?.root === null ? live.url : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -281,7 +310,7 @@ async function runCommand(command: string, rest: string[]): Promise<number> {
   const opts = parseDoctorArgs(rest);
   if (opts === "help") { out.say(DOCTOR_HELP.trimEnd()); return EXIT.OK; }
   const manifest = JSON.parse(readFileSync(resolve(pkgRoot, "package.json"), "utf8")) as { engines?: { node?: string } };
-  const { checks, notice } = await diagnose({ ctx, version: pkg.version, engines: manifest.engines?.node, entry: process.argv[1], webDir, cwd: process.cwd(), offline: opts.offline });
+  const { checks, notice } = await diagnose({ ctx, version: pkg.version, engines: manifest.engines?.node, entry: process.argv[1], webDir, offline: opts.offline });
   const code = doctorCode(checks);
   if (opts.json) process.stdout.write(`${JSON.stringify({ ok: code === 0, version: pkg.version, checks }, null, 2)}\n`);
   else process.stdout.write(renderChecks(checks));

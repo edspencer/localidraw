@@ -1,13 +1,14 @@
 # Localidraw
 
-**A local Excalidraw for the `.excalidraw` files in a folder.**
+**A local Excalidraw for the `.excalidraw` files on your machine.**
 
 ```sh
-npx localidraw            # the current folder
-npx localidraw ~/notes    # or any folder
+npx localidraw --open              # Scratch (~/.localidraw/drawings), and the folders you add
+npx localidraw add ~/code/web-app  # a project's drawings too: they show at once
+npx localidraw .                   # or just the current folder, on its own
 ```
 
-Then open http://localhost:3729/.
+It opens http://localhost:3729/.
 
 ![Drawing a box on a canvas while a coding agent adds another to the same file: the agent's change appears, and the drawing is kept](https://raw.githubusercontent.com/edspencer/localidraw/main/docs/media/hero.gif)
 
@@ -17,8 +18,10 @@ for the recording ([tools/docs-media](tools/docs-media/README.md)).</sub>
 Localidraw serves the real Excalidraw editor, full screen in your browser, on the drawings in a folder on your
 machine. There's no export step and no cloud copy: what you draw is saved straight to the file.
 
-- **Projects and canvases.** Every folder under the one you start it in that holds `.excalidraw` files is a project,
-  and each file is a canvas. They're listed in a **Canvases** tab in Excalidraw's own sidebar, next to the Library,
+- **Every folder, plus Scratch.** One Localidraw serves the folders you list with `localidraw add`, and Scratch, a
+  folder of its own for when you just want to draw ([Folders and Scratch](https://localidraw.edspencer.net/folders/)).
+- **Projects and canvases.** Every folder in those that holds `.excalidraw` files is a project, and each file is a
+  canvas. They're listed in a **Canvases** tab in Excalidraw's own sidebar, next to the Library,
   with a filter and **New canvas**, and each canvas can be renamed, moved or deleted from there (a delete goes to a
   trash folder, and can be undone). One canvas per diagram, rather than one endless board.
 - **Saved as you draw.** Each canvas is written back to its file under a second after you stop. Opening a canvas, or
@@ -42,19 +45,24 @@ The documentation is at **https://localidraw.edspencer.net**, including
 ## Options
 
 ```
-localidraw [serve] [folder] [--port <n>] [--open] [-q] [--host <addr> --allowed-host <name>] [--poll [ms]]
-localidraw service install [folder] | uninstall | start | stop | restart | status   [--json]
+localidraw [serve] [folder] [--port <n>] [-o] [-q] [--host <addr> --allowed-host <name>] [--poll [ms]]
+localidraw add <folder> [--name <name>] | remove <name|folder> | folders   [--json]
+localidraw service install [-o] | uninstall | start [-o] | stop | restart | status   [--json]
 localidraw service logs [-f] [-n <lines>]
 localidraw update [--check] [--to <version|tag>] [--yes] [--force] [--json]
 localidraw busy [--json]
 localidraw doctor [--json] [--offline]
 ```
 
-- `serve`: run it in the foreground. It's the default, so `localidraw ~/notes` is `localidraw serve ~/notes`.
-- `folder`: where the canvases are (default: the current folder). `node_modules` and dot-folders are skipped. Command
-  names win over folder names: a folder called `service`, `update`, `busy` or `doctor` is given as `./service`.
+- `serve`: run it in the foreground. It's the default, so `localidraw` is `localidraw serve`. With no folder, it
+  serves Scratch and the folders in `~/.localidraw/config.json`, and follows that file as it changes.
+- `folder`: serve this folder alone instead, with no list and no Scratch. `node_modules` and dot-folders are skipped.
+  Command names win over folder names: a folder called `add`, `service`, `update`, `busy` or `doctor` is given as
+  `./service`.
+- `add <folder>`, `remove <name>`, `folders`: edit and print the list. No running Localidraw is needed, and one that
+  is shows the change at once.
 - `--port <n>`: the port (default 3729, which spells "DRAW" on a phone keypad, or `$PORT`).
-- `--open`: open it in your browser.
+- `-o`, `--open`: open it in your browser, once it answers.
 - `-q`, `--quiet`: print only the first line, `Localidraw <version>: <url>`.
 
 To host it (on a server, or in Docker, behind a reverse proxy):
@@ -66,17 +74,20 @@ To host it (on a server, or in Docker, behind a reverse proxy):
   a folder on NFS or SMB, or `$LOCALIDRAW_POLL`.
 
 Ctrl-C or SIGTERM (`docker stop`, a service manager) stops it once any save under way is written, and it exits 0. It
-exits 1 when it fails (the port is in use, say), and 2 for a usage error, with the usage after the message. These
-follow the [CLI contract](https://github.com/edspencer/cli-contract) that Ed's local tools share.
+exits 1 when it fails (the port is in use, say), and 2 for a usage error, with the usage after the message. With no
+folder, a port held by a Localidraw that serves the list already isn't a failure: it prints
+`Localidraw is already running: <url>` (opening it, with `--open`) and exits 0. These follow the
+[CLI contract](https://github.com/edspencer/cli-contract) that Ed's local tools share.
 
 To keep it running in the background from login on, on macOS (launchd) or Linux (systemd), install it as a service:
 
 ```sh
 npm install -g localidraw
-localidraw service install ~/notes
+localidraw service install --open
 ```
 
-There's one service per machine, serving the folder you give it. `localidraw service status` says how it is (exit 0,
+There's one service per machine, serving Scratch and the list, so `localidraw add <folder>` is all a new folder takes:
+no restart, and `service install` takes no folder. `localidraw service status` says how it is (exit 0,
 3 for not running, 4 for not installed), and `localidraw service logs -f` follows its log, in `~/.localidraw/logs/`.
 [Running as a service](https://localidraw.edspencer.net/service/) has the rest.
 
@@ -90,7 +101,8 @@ Localidraw has no login of its own: when you host it, authentication is the reve
 image, `ghcr.io/edspencer/localidraw` (amd64 and arm64), and a [`compose.yaml`](compose.yaml).
 [Self-hosting](https://localidraw.edspencer.net/self-hosting/) has the details and the limits.
 
-The open canvas is in the URL (`?canvas=path/in/folder.excalidraw`), so you can bookmark it. Your viewport per canvas,
+The open canvas is in the URL (`?canvas=web-app/docs/flow.excalidraw`, the folder's name first), so you can bookmark
+it. Your viewport per canvas,
 the theme and the sidebar are remembered by the browser, not written into the files.
 
 ## How the merge works
