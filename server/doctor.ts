@@ -90,7 +90,9 @@ export interface DoctorInput {
   registryFetch?: typeof fetch;
 }
 
-const tildify = (p: string, home: string) => (p === home ? "~" : p.startsWith(`${home}/`) ? `~${p.slice(home.length)}` : p);
+/** A path under the home as `~/…`, with `/` on every OS (Windows' `\` too), as the docs write it. */
+const tildify = (p: string, home: string) =>
+  p === home ? "~" : p.startsWith(`${home}/`) || p.startsWith(`${home}\\`) ? `~${p.slice(home.length).replace(/\\/g, "/")}` : p;
 
 export async function diagnose(i: DoctorInput): Promise<{ checks: Check[]; notice?: string }> {
   const checks: Check[] = [];
