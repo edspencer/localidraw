@@ -373,7 +373,7 @@ test("service status exits 4 with nothing installed, and --json prints one docum
   if (process.platform === "win32") {
     assert.equal(r.status, 4);
     assert.match(r.stdout, /isn't installed as a service: .*not win32 yet/);
-    assert.equal(run(["service", "install", empty]).status, 1, "nothing else is supported on Windows yet");
+    assert.equal(run(["service", "install"]).status, 1, "nothing else is supported on Windows yet");
     return;
   }
   assert.equal(r.status, 4, r.stderr);

@@ -242,7 +242,8 @@ try {
   assert.equal(fs.statSync(unit).mtimeMs, mtime);
 
   step("logs, and an unknown flag");
-  assert.ok(expectExit(0, "service", "logs", "-n", "5").stdout.includes(`Localidraw ${version}`));
+  // The banner names Scratch and each folder, so its first line is a few lines up.
+  assert.ok(expectExit(0, "service", "logs", "-n", "20").stdout.includes(`Localidraw ${version}`));
   const bad = expectExit(2, "service", "status", "--nope");
   assert.match(bad.stderr, /^localidraw: unknown option --nope\n\nUsage: localidraw service/);
 
