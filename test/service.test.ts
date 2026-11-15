@@ -190,7 +190,7 @@ test("status says how many folders are listed, and Scratch, in its prose and its
     JSON.stringify({ folders: Array.from({ length: n }, (_, i) => ({ path: join(m.root, `f${i}`), name: `f${i}` })) }));
   listed(2);
   const prose = await service(["status"], { ...m, run: sd.run, probe: async () => ({ ok: true, version: "1.2.3" }) });
-  assert.match(prose.stdout, /\n {2}Serves: {2}Scratch \(.*\.localidraw\/drawings\) and 2 folders \(localidraw folders lists them\)\n/);
+  assert.match(prose.stdout, /\n {2}Serves: {2}Scratch \(.*\.localidraw[\\/]drawings\) and 2 folders \(localidraw folders lists them\)\n/);
   assert.doesNotMatch(prose.stdout, /Folder:/);
   listed(1);
   const j = await service(["status", "--json"], { ...m, run: sd.run });
