@@ -1,29 +1,31 @@
 ---
 title: Running as a service
-description: Keep Localidraw running in the background on macOS or Linux, from login on, serving one folder, with localidraw service.
+description: Keep Localidraw running in the background on macOS or Linux, from login on, serving Scratch and your folders, with localidraw service.
 ---
 
 `localidraw service install` sets Localidraw up to start when you log in and to restart if it stops: a LaunchAgent
-on macOS, a systemd user service on Linux. Both run as you, and keep a folder of canvases at http://localhost:3729/
-without a terminal left open. Windows isn't supported yet ([below](#windows)).
+on macOS, a systemd user service on Linux. Both run as you, and keep [Scratch and your folders](/folders/) at
+http://localhost:3729/ without a terminal left open. Windows isn't supported yet ([below](#windows)).
 
 ```sh
 npm install -g localidraw
-localidraw service install ~/notes
+localidraw service install --open   # start it, and open it in the browser
+localidraw add ~/notes              # it shows at once: no restart
 ```
 
 ## Installing
 
-`service install [folder]` takes the folder of canvases, and `--port`, `--host`, `--allowed-host` and `--poll`, as
-`serve` does. The folder is needed the first time. It writes the service, starts it, and **waits until Localidraw
-answers** (up to 20 seconds) before it returns. If it doesn't answer, `install` prints the last 20 lines of its log
-and exits `1`.
+`service install` takes `--port`, `--host`, `--allowed-host` and `--poll`, as `serve` does, and no folder: the service
+serves the list, so a folder is added to that with `localidraw add <folder>`, before or after. It writes the service,
+starts it, and **waits until Localidraw answers** (up to 20 seconds) before it returns. If it doesn't answer, `install`
+prints the last 20 lines of its log and exits `1`. **`--open` (`-o`)** opens it in your browser once it answers;
+`service start` takes it too.
 
 - **Running it again is safe:** it keeps the port and settings the service already has, unless you give new ones,
   and restarts the running service onto them.
 
   ```sh
-  localidraw service install --port 3740   # the same folder, on another port
+  localidraw service install --port 3740   # the same service, on another port
   ```
 
 - **`--dry-run` prints the unit and writes nothing.**
@@ -39,14 +41,23 @@ and exits `1`.
 
   Localidraw never runs `sudo` itself.
 
-### One folder per machine
+### One service, every folder
 
-There's one Localidraw service per machine, and it serves the folder you gave `install`. Installing another folder
-moves the service there. To draw in a second folder at the same time, run `localidraw ~/other --port 3730` in a
-terminal as well.
+There's one Localidraw service per machine, and it serves Scratch and the folders in `~/.localidraw/config.json`,
+following the file as it changes. So adding a folder never means touching the service:
 
-The service is written with everything it runs with: the folder, the port, the host, the allowed hosts and `--poll`.
-It doesn't read `$LOCALIDRAW_HOST` and the other variables, so it runs the same whichever shell installed it.
+```sh
+localidraw add ~/code/web-app      # shows in the sidebar within a second or so
+localidraw remove web-app          # and goes again; the files stay where they are
+```
+
+`service status` says how many folders are listed. Running `localidraw` in a terminal while the service runs doesn't
+start a second one: it prints the service's address (and opens it, with `--open`) and exits `0`.
+
+The service is written with everything it runs with: the port, the host, the allowed hosts and `--poll`. It doesn't
+read `$LOCALIDRAW_HOST` and the other variables, so it runs the same whichever shell installed it. A service a
+Localidraw before 0.9 installed names one folder; `service status` warns about that, and `service restart` writes it
+again without the folder (add the folder with `localidraw add` to keep it).
 
 ### Hosting it as a service
 
@@ -55,8 +66,12 @@ The [hosting rules](/self-hosting/#listening-beyond-localhost) are the same as f
 refuses:
 
 ```sh
-localidraw service install /srv/canvases --host 0.0.0.0 --allowed-host draw.example.com
+localidraw add /srv/canvases
+localidraw service install --host 0.0.0.0 --allowed-host draw.example.com
 ```
+
+Hosted, it serves what it serves on your machine: Scratch and every listed folder. To host one folder and nothing
+else, run `localidraw /srv/canvases` instead, in [Docker](/self-hosting/) or a service file of your own.
 
 Localidraw has no login of its own, so put it behind a reverse proxy that does authentication, as
 [Self-hosting](/self-hosting/) describes.
@@ -68,10 +83,10 @@ Localidraw has no login of its own, so put it behind a reverse proxy that does a
 | The unit | `~/Library/LaunchAgents/net.edspencer.localidraw.plist` | `~/.config/systemd/user/localidraw.service` |
 | The log | `~/.localidraw/logs/service.log` | `~/.localidraw/logs/service.log` |
 
-`~/.localidraw` is Localidraw's own folder: the service's log and working folder, and `runtime.json`, which says
-where a running Localidraw is listening (`serve` writes it too, in a terminal, and removes it when it stops). Your
-canvases are never kept there: they stay in the folder the service serves, and `install` refuses a folder inside
-`~/.localidraw`.
+`~/.localidraw` is Localidraw's own folder: the list (`config.json`), the service's log and working folder, and
+`runtime.json`, which says where a running Localidraw is listening (`serve` writes it too, in a terminal, and removes
+it when it stops). Your canvases stay in their folders. The one exception is Scratch, `~/.localidraw/drawings`: back
+it up like any folder of your own work.
 
 The unit runs this Node and this install's `cli.js` by their real paths, never the `localidraw` shim, so **if you
 remove that Node version (nvm, fnm, volta), `service status` and `doctor` warn, and `service install` again fixes
@@ -83,12 +98,12 @@ install, say): run `localidraw service install` from the one you mean it to run.
 
 | Command | What it does |
 | --- | --- |
-| `service install [folder]` | Writes the unit, starts it and waits until it answers ([above](#installing)). `--dry-run` prints the unit instead; `--refresh` writes it again from the settings it records, which [`update`](/updating/) uses. |
+| `service install` | Writes the unit, starts it and waits until it answers ([above](#installing)). `--open` opens it in your browser then. `--dry-run` prints the unit instead; `--refresh` writes it again from the settings it records, which [`update`](/updating/) uses. |
 | `service uninstall` | Stops it and removes the unit. Your canvases and the log stay. |
-| `service start` | Starts it, and waits until it answers. |
+| `service start [--open]` | Starts it, and waits until it answers. `--open` opens it in your browser then. |
 | `service stop [--force]` | Stops it until `service start`, or the next login or boot. It doesn't disable the service. To keep it off for good, use `service uninstall`. |
 | `service restart [--force]` | Stops and starts it, writing the unit again first if the Node or the Localidraw it names has gone. |
-| `service status [--json]` | Says whether it's installed, running and answering, with the folder, the port, the installed and running versions, the unit, the log, and any warnings. |
+| `service status [--json]` | Says whether it's installed, running and answering, with how many folders are listed (`folders`) and Scratch's path (`scratch`), the port, the installed and running versions, the unit, the log, and any warnings. |
 | `service logs [-f] [-n <lines>]` | The last 50 lines of its log; `-f` follows, `-n` sets how many. |
 
 `localidraw service --help` lists them too.
@@ -142,7 +157,7 @@ localidraw service status > /dev/null; echo $?
 ## Windows
 
 Not yet. On Windows, `service status` exits `4` (nothing's installed) and the other `service` commands exit `1`. Run
-`localidraw ~/notes` in a terminal, or keep it running with Task Scheduler or whatever you already use.
+`localidraw` in a terminal, or keep it running with Task Scheduler or whatever you already use.
 
 ## Updating
 

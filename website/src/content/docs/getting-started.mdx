@@ -1,6 +1,6 @@
 ---
 title: Getting started
-description: Run Localidraw on a folder with npx, and the options it takes.
+description: Run Localidraw with npx, draw in Scratch, add your folders, and the options it takes.
 ---
 
 import { LOCAL_URL, DEFAULT_PORT } from '../../site.mjs';
@@ -9,43 +9,56 @@ You need [Node.js](https://nodejs.org) 22 or later. Nothing else: Localidraw has
 editor and its fonts are in the package.
 
 ```sh
-npx localidraw            # the current folder
-npx localidraw ~/notes    # or any folder
+npx localidraw --open     # Scratch and your folders, opened in the browser
 ```
 
-Then open <a href={`${LOCAL_URL}/`}>{LOCAL_URL}</a>. It prints the address, the folder and how many canvases it found, and what it listens on:
+It opens <a href={`${LOCAL_URL}/`}>{LOCAL_URL}</a> on **Scratch**, a folder of its own (`~/.localidraw/drawings`) for
+when you just want to draw. To edit the drawings in a project too, add its folder; a Localidraw that's running shows
+it at once:
+
+```sh
+npx localidraw add ~/code/web-app
+```
+
+It prints the address, what it serves and how many canvases each has, and what it listens on:
 
 ```
-Localidraw 0.4.0: http://localhost:3729/
-  /Users/you/notes (4 canvases)
+Localidraw 0.9.0: http://localhost:3729/
+  scratch  /Users/you/.localidraw/drawings (2 canvases)
+  web-app  /Users/you/code/web-app (4 canvases)
   listening on 127.0.0.1:3729 (this machine only)
   answering to localhost
   watching for changes by file events
 ```
 
-To keep it around rather than download it each time, install it globally:
+To open one folder alone instead, with no list and no Scratch, give it: `npx localidraw .` for the current folder, or
+`npx localidraw ~/notes`. [Folders and Scratch](/folders/) has the details.
+
+To keep it around rather than download it each time, install it globally, and to keep it running, install the
+[service](/service/):
 
 ```sh
 npm install -g localidraw
-localidraw ~/notes
+localidraw service install --open
 ```
 
 ## Options
 
 ```
-localidraw [serve] [folder] [--port <n>] [--open] [-q] [--host <addr> --allowed-host <name>] [--poll [ms]]
+localidraw [serve] [folder] [--port <n>] [-o] [-q] [--host <addr> --allowed-host <name>] [--poll [ms]]
 ```
 
 | Option | What it does |
 | --- | --- |
-| `serve` | Runs it in the foreground. It's the default, so `localidraw ~/notes` is the same as `localidraw serve ~/notes`. |
-| `folder` | Where the canvases are. The default is the current folder. `node_modules` and dot-folders (`.git` and the like) are skipped. A folder with a command's name (`serve`, `service`, `update`, `busy` or `doctor`) is given as `./service`: the command wins. |
-| `service <command>` | Runs it in the background from login on, serving one folder: see [Running as a service](/service/). |
+| `serve` | Runs it in the foreground. It's the default, so `localidraw` is the same as `localidraw serve`. With no folder, it serves Scratch and the folders you've added. |
+| `folder` | Serves this folder alone instead: no list, no Scratch. `node_modules` and dot-folders (`.git` and the like) are skipped. A folder with a command's name (`serve`, `add`, `service`, `update`, `busy`, …) is given as `./service`: the command wins. |
+| `add <folder>` | Adds a folder to the list, `--name` to choose its name. `remove <name>` takes it off, and `folders` prints the list: see [Folders and Scratch](/folders/). |
+| `service <command>` | Runs it in the background from login on, serving Scratch and your folders: see [Running as a service](/service/). |
 | `busy [--json]` | Says whether the Localidraw running here is in the middle of a save: exits `0` (no), `75` (yes) or `3` (nothing's running). For scripts, before a restart. |
 | `update` | Updates it to the latest version, and restarts the service: see [Updating](/updating/). |
 | `doctor` | Checks that it can run here, with a fix for anything that's wrong: see [Updating](/updating/#when-something-is-wrong-doctor). |
 | `--port <n>` | The port. The default is <code>{DEFAULT_PORT}</code>, which spells "DRAW" on a phone keypad, or `$PORT` if that's set. |
-| `--open` | Opens it in your browser. |
+| `-o`, `--open` | Opens it in your browser, once it answers. |
 | `-q`, `--quiet` | Prints only the first line, `Localidraw <version>: <url>`, for a script that wants the URL. Hosted, the warning that Localidraw has no login still goes to stderr. |
 | `-v`, `--version` | Prints the version. |
 | `-h`, `--help` | Prints the options. |
@@ -61,8 +74,10 @@ These are for [hosting it](/self-hosting/), on a server or in Docker, behind a r
 A flag wins over its environment variable, and `--allowed-host` flags replace `$LOCALIDRAW_ALLOWED_HOSTS` rather
 than adding to it.
 
-If the port is taken, it says so and stops; run it with `--port` and another number. One Localidraw per folder: two
-servers on the same folder would each save without knowing about the other's page.
+If the port is taken, it says so and stops; run it with `--port` and another number. The exception is a port held by
+a Localidraw that serves the list already (the [service](/service/), or another terminal): then `localidraw` with no
+folder prints that one's address, `Localidraw is already running: <url>`, opens it with `--open`, and exits `0`. One
+Localidraw per folder: two servers on the same folder would each save without knowing about the other's page.
 
 ## Stopping it
 
@@ -75,7 +90,7 @@ again to stop at once.
 
 | Exit code | When |
 | --- | --- |
-| `0` | It stopped on <kbd>Ctrl</kbd>+<kbd>C</kbd> or SIGTERM, or `--help` or `--version` printed. |
+| `0` | It stopped on <kbd>Ctrl</kbd>+<kbd>C</kbd> or SIGTERM, `--help` or `--version` printed, or a Localidraw serving the list was running already. |
 | `1` | It failed: the port is in use, the page isn't built, or a save was still under way after five seconds. |
 | `2` | A usage error: an unknown option, or a bad value. The usage follows the message. |
 
@@ -88,9 +103,10 @@ To keep it running in the background instead, see [Running as a service](/servic
 
 - **The drawings are the files.** Nothing else is written into them: no viewport, no theme, no sidebar state.
 - **The browser keeps your preferences:** the viewport per canvas, the theme and whether the sidebar is docked, in
-  `localStorage`. They follow the browser, not the folder. So does Excalidraw's Library, unless the folder has a
-  [`library.excalidrawlib`](/library/) to share it in.
-- **The open canvas is in the URL**, as `?canvas=path/in/folder.excalidraw`, so you can bookmark one.
+  `localStorage`. They follow the browser, not the folder. Excalidraw's [Library](/library/) is
+  `~/.localidraw/library.excalidrawlib` when serving the list, unless the open canvas's folder has its own.
+- **The open canvas is in the URL**, as `?canvas=web-app/docs/flow.excalidraw` (the folder's name first), so you
+  can bookmark one.
 
 ## Safety
 
@@ -98,12 +114,13 @@ Localidraw listens on `127.0.0.1`, so nothing else on your network can reach it.
 `Origin` isn't localhost, so a web page you visit can't read or write your canvases through it. Hosting it is
 something you turn on, by name: see [Self-hosting](/self-hosting/).
 
-It only touches `.excalidraw` files inside the folder you gave it, outside dot-folders and `node_modules`, and the
+It only touches `.excalidraw` files inside the folders it serves, outside dot-folders and `node_modules`, and a
 folder's `library.excalidrawlib` if you made one. It creates, saves, renames and moves canvases, never over another file, and never deletes one: deleting from the
 sidebar moves the file into `.localidraw/trash/` in the folder.
 
 ## Next
 
+- [Folders and Scratch](/folders/): the list, `add` and `remove`, and one folder alone.
 - [The Canvases sidebar](/canvases/): projects, the filter, New canvas, and renaming, moving and deleting.
 - [The Library](/library/): reusable shapes, in the browser or shared in the folder.
 - [Saving and merging](/saving-and-merging/): what happens when a file changes on disk.

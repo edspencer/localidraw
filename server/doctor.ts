@@ -3,8 +3,9 @@
 //
 // The spec's checks: Node against `engines`, how it was installed (§6), the unit (there, the Node and CLI it names still
 // there, and the same install as this CLI), the running version, the port, linger, the home, and a newer version.
-// Then Localidraw's own: the page is built, the folder it serves (the service's, or the current folder) is readable,
-// and on Linux, whether the system's limit on file watches covers that folder's folders, since it watches each one.
+// Then Localidraw's own: the page is built, the list (~/.localidraw/config.json) parses, Scratch and every listed
+// folder are there and readable, and on Linux, whether the system's limit on file watches covers their folders, since
+// it watches each one. That's what `localidraw` and the service serve; `localidraw <folder>` is one folder, run by hand.
 //
 // It only reads, apart from ~/.localidraw/update-check.json: like `update --check`, it writes what it found there, so
 // `service status` can repeat it (SPEC §3). It asks the npm registry only because a person ran it; --offline doesn't.
@@ -21,6 +22,7 @@ import { UnsupportedPlatformError, type ServiceManager } from "./contract/servic
 import { compareVersions, isPrerelease, satisfiesEngines } from "./contract/semver.ts";
 import { updateNotice, writeUpdateCheck } from "./contract/update-check.ts";
 import { SKIPPED_DIRS } from "./files.ts";
+import { configPath, readConfig, scratchDir, type FolderEntry } from "./folders.ts";
 import { localidrawHome } from "./options.ts";
 import { DEFAULT_PORT } from "./port.ts";
 import { buildStatus, localFetch, managerFor, probeUrlFor, type ServiceContext, type StatusReport } from "./service.ts";
@@ -30,7 +32,7 @@ import { changelogUrl, CHECKOUT_COMMAND, PACKAGE_NAME } from "./update.ts";
 export type CheckStatus = "pass" | "warn" | "fail" | "skip";
 
 export interface Check {
-  /** Stable, for scripts: the spec's own (node-engines, install-method, unit, running-version, port, linger, data-home, update), then Localidraw's (page, folder, inotify). */
+  /** Stable, for scripts: the spec's own (node-engines, install-method, unit, running-version, port, linger, data-home, update), then Localidraw's (page, config, folders, inotify). */
   id: string;
   status: CheckStatus;
   message: string;
@@ -49,8 +51,9 @@ ${DOCTOR_USAGE}
   --offline         don't ask the npm registry for a newer version
 
 It checks Node, how Localidraw was installed, the service, the version running, the port, linger (Linux), its home
-(~/.localidraw), that the page is built, that the folder it serves is readable (the service's, or this one), and
-on Linux that the limit on file watches covers that folder. It exits 1 if a check failed.
+(~/.localidraw), that the page is built, that the list (~/.localidraw/config.json) parses, that Scratch and every
+listed folder are there and readable, and on Linux that the limit on file watches covers them. It exits 1 if a
+check failed.
 `;
 
 /** The arguments after `doctor`. Returns "help" for `--help`. */
@@ -75,8 +78,6 @@ export interface DoctorInput {
   entry: string;
   /** Where the built page should be. */
   webDir: string;
-  /** The folder `localidraw` would serve here: the current folder. */
-  cwd: string;
   offline?: boolean;
   env?: NodeJS.ProcessEnv;
   /** Injected for tests. */
@@ -126,16 +127,16 @@ export async function diagnose(i: DoctorInput): Promise<{ checks: Check[]; notic
     if (err instanceof UnsupportedPlatformError) add({ id: "unit", status: "skip", message: `${err.message} (a Windows service is planned)` });
     else add({ id: "unit", status: "warn", message: `couldn't ask the service manager: ${(err as Error).message}` });
   }
-  if (report && !report.installed) add({ id: "unit", status: "skip", message: "it isn't installed as a service (`localidraw service install <folder>` runs it in the background)" });
+  if (report && !report.installed) add({ id: "unit", status: "skip", message: "it isn't installed as a service (`localidraw service install` runs it in the background)" });
   else if (report) {
-    // The running-version and linger warnings are their own checks, below.
-    const warnings = report.warnings.filter((w) => !/^It's running |^Linger is off/.test(w));
-    if (!warnings.length) add({ id: "unit", status: "pass", message: `the service is installed (${report.manager}), serving ${t(report.folder ?? "?")}: ${t(report.unit ?? "")}` });
+    // The running-version, linger and config.json warnings are their own checks, below.
+    const warnings = report.warnings.filter((w) => !/^It's running |^Linger is off/.test(w) && !w.startsWith(configPath(home)));
+    if (!warnings.length) add({ id: "unit", status: "pass", message: `the service is installed (${report.manager}), serving the list: ${t(report.unit ?? "")}` });
     for (const w of warnings) {
       add(/isn't there any more/.test(w)
-        ? { id: "unit", status: "fail", message: w, fix: /folder it serves/.test(w) ? "`localidraw service install <folder>`" : "`localidraw service restart` (it keeps the folder, port and host)" }
+        ? { id: "unit", status: "fail", message: w, fix: "`localidraw service restart` (it keeps the port and host)" }
         : /another install of Localidraw/.test(w)
-          ? { id: "unit", status: "warn", message: w, fix: "`localidraw service install`, run from the install you mean the service to run (it keeps the folder, port and host)" }
+          ? { id: "unit", status: "warn", message: w, fix: "`localidraw service install`, run from the install you mean the service to run (it keeps the port and host)" }
           : { id: "unit", status: "warn", message: w, fix: "`localidraw service restart`" });
     }
   }
@@ -185,7 +186,7 @@ export async function diagnose(i: DoctorInput): Promise<{ checks: Check[]; notic
   const writable = writableOrCreatable(home);
   if (writable === true) add({ id: "data-home", status: "pass", message: `its home ${t(home)} is writable` });
   else if (writable === "creatable") add({ id: "data-home", status: "pass", message: `its home ${t(home)} doesn't exist yet; it's made the first time Localidraw runs` });
-  else add({ id: "data-home", status: "fail", message: `its home ${t(home)} isn't writable: ${writable}`, fix: `check the permissions of ${t(home)} (Localidraw keeps runtime.json and the service's log there, never drawings)` });
+  else add({ id: "data-home", status: "fail", message: `its home ${t(home)} isn't writable: ${writable}`, fix: `check the permissions of ${t(home)} (Localidraw keeps runtime.json, the list, the service's log and Scratch there)` });
 
   // ---- Localidraw's own: the page is built
   if (existsSync(join(i.webDir, "index.html"))) add({ id: "page", status: "pass", message: "the page is built" });
@@ -194,33 +195,72 @@ export async function diagnose(i: DoctorInput): Promise<{ checks: Check[]; notic
       fix: info.method === "checkout" ? "`npm run build` in the checkout" : `install it again: npm install -g ${PACKAGE_NAME}` });
   }
 
-  // ---- the folder it serves: the service's, or the current folder, readable
-  const folder = report?.installed && report.folder ? report.folder : i.cwd;
-  const whose = report?.installed && report.folder ? "the service's folder" : "this folder";
-  let readable = false;
+  // ---- the list: ~/.localidraw/config.json parses (no file is an empty list)
+  let listed: FolderEntry[] = [];
+  const config = configPath(home);
   try {
-    if (!statSync(folder).isDirectory()) throw new Error("it isn't a folder");
-    accessSync(folder, constants.R_OK | constants.X_OK);
-    readdirSync(folder);
-    readable = true;
-    add({ id: "folder", status: "pass", message: `${whose}, ${t(folder)}, is readable` });
+    listed = readConfig(home).folders;
+    add({ id: "config", status: "pass", message: existsSync(config)
+      ? `${t(config)} lists ${listed.length} folder${listed.length === 1 ? "" : "s"}`
+      : `there's no ${t(config)} yet, so it serves Scratch alone (\`localidraw add <folder>\` lists one)` });
   } catch (err) {
-    const why = (err as NodeJS.ErrnoException).code === "ENOENT" ? "it isn't there" : (err as Error).message;
-    add({ id: "folder", status: "fail", message: `${whose}, ${t(folder)}, can't be read: ${why}`,
-      fix: report?.installed && report.folder ? "`localidraw service install <folder>` on a folder that's there" : "run localidraw on a folder you can read: `localidraw <folder>`" });
+    add({ id: "config", status: "fail", message: (err as Error).message.split(config).join(t(config)),
+      fix: `fix ${t(config)}, or delete it (\`localidraw add\` makes a new one); a Localidraw running keeps the folders it listed before` });
   }
 
-  // ---- on Linux, the limit on file watches: one a folder, as it watches each (server.ts's watchTree)
+  // ---- what it serves: Scratch (made with its first canvas) and every listed folder, there and readable
+  const scratch = scratchDir(home);
+  const served: string[] = [];
+  const missing: FolderEntry[] = [];
+  const unreadable: string[] = [];
+  for (const [path, name] of [[scratch, "Scratch"] as const, ...listed.map((f) => [f.path, f.name] as const)]) {
+    try {
+      if (!statSync(path).isDirectory()) throw Object.assign(new Error("it isn't a folder"), { code: "ENOTDIR" });
+      accessSync(path, constants.R_OK | constants.X_OK);
+      readdirSync(path);
+      served.push(path);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (path === scratch && code === "ENOENT") continue; // made with its first canvas
+      if (code === "ENOENT") missing.push(listed.find((f) => f.path === path)!);
+      else unreadable.push(`${name} (${t(path)}): ${(err as Error).message}`);
+    }
+  }
+  if (unreadable.length) {
+    add({ id: "folders", status: "fail", message: `${unreadable.length === 1 ? "a folder it serves can't" : "folders it serves can't"} be read: ${unreadable.join("; ")}`,
+      fix: "check their permissions, or take them off the list: `localidraw remove <name>`" });
+  }
+  if (missing.length) {
+    add({ id: "folders", status: "warn",
+      message: `${missing.length === 1 ? "a listed folder isn't" : `${missing.length} listed folders aren't`} there: ${missing.map((f) => `${f.name} (${t(f.path)})`).join(", ")}. It shows as missing until it's back.`,
+      fix: `mount ${missing.length === 1 ? "it" : "them"} again, or take ${missing.length === 1 ? "it" : "them"} off the list: ${missing.map((f) => `localidraw remove ${f.name}`).join("; ")}` });
+  }
+  if (!unreadable.length && !missing.length) {
+    add({ id: "folders", status: "pass", message: listed.length
+      ? `Scratch and the ${listed.length === 1 ? "listed folder are" : `${listed.length} listed folders are all`} there and readable`
+      : existsSync(scratch) ? `Scratch (${t(scratch)}) is readable` : `Scratch (${t(scratch)}) is made with its first canvas` });
+  }
+
+  // ---- on Linux, the limit on file watches: one a folder, as it watches each (server.ts's watchTree), across them all
   const max = (i.maxWatches ?? maxUserWatches)();
   if (ctx.platform !== "linux" || max === undefined) add({ id: "inotify", status: "skip", message: "the limit on file watches is a Linux thing" });
-  else if (!readable) add({ id: "inotify", status: "skip", message: "the folder can't be read, so its folders weren't counted" });
   else if (report?.installed && report.poll !== null) add({ id: "inotify", status: "pass", message: `the service checks the files every ${report.poll} ms (--poll), so it needs no file watches` });
+  else if (!served.length) add({ id: "inotify", status: "pass", message: `nothing to watch yet (fs.inotify.max_user_watches = ${max})` });
   else {
-    const { folders, complete } = countFolders(folder, max);
+    let folders = 0;
+    let complete = true;
+    const until = Date.now() + 3000;
+    for (const dir of served) {
+      if (folders > max || Date.now() >= until) { complete = false; break; }
+      const c = countFolders(dir, max - folders, until - Date.now());
+      folders += c.folders;
+      complete &&= c.complete;
+    }
+    const what = served.length === 1 ? `${t(served[0])} has` : "Scratch and the listed folders have";
     const fix = `raise it: sudo sysctl fs.inotify.max_user_watches=524288 (and put that in /etc/sysctl.d/ to keep it), or serve with --poll`;
-    if (!complete && folders <= max / 2) add({ id: "inotify", status: "skip", message: `${t(folder)} has more than ${folders} folders, too many to count quickly; the system's limit is ${max} (fs.inotify.max_user_watches)` });
-    else if (folders > max) add({ id: "inotify", status: "fail", message: `${t(folder)} has more than ${max} folders to watch, past the system's limit (fs.inotify.max_user_watches = ${max}): changes in some won't show`, fix });
-    else if (folders > max / 2) add({ id: "inotify", status: "warn", message: `${t(folder)} has ${folders} folders to watch, more than half the system's limit (fs.inotify.max_user_watches = ${max}), which every program shares`, fix });
+    if (!complete && folders <= max / 2) add({ id: "inotify", status: "skip", message: `${what} more than ${folders} folders, too many to count quickly; the system's limit is ${max} (fs.inotify.max_user_watches)` });
+    else if (folders > max) add({ id: "inotify", status: "fail", message: `${what} more than ${max} folders to watch, past the system's limit (fs.inotify.max_user_watches = ${max}): changes in some won't show`, fix });
+    else if (folders > max / 2) add({ id: "inotify", status: "warn", message: `${what} ${folders} folders to watch, more than half the system's limit (fs.inotify.max_user_watches = ${max}), which every program shares`, fix });
     else add({ id: "inotify", status: "pass", message: `${folders} folder${folders === 1 ? "" : "s"} to watch, well inside the limit (fs.inotify.max_user_watches = ${max})` });
   }
 

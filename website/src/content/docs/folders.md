@@ -7,7 +7,7 @@ One Localidraw serves every folder of drawings you have, plus **Scratch**, a fol
 to draw. Run `localidraw` (or the [service](/service/)) once, and add folders to it as you go: no restart.
 
 ```sh
-npx localidraw                        # Scratch, and the folders you've added
+npx localidraw --open                 # Scratch, and the folders you've added, in the browser
 localidraw add ~/code/web-app         # its canvases show too, at once
 localidraw add ~/notes --name notes   # with a name of your choice
 localidraw folders                    # the list
@@ -38,7 +38,9 @@ The folders are listed in `~/.localidraw/config.json`:
 - These edit the file, so no Localidraw has to be running. You can edit it by hand too; keep it valid JSON.
 
 A Localidraw that's running follows the file: a folder added shows in the sidebar within a second or so, and one
-removed goes. If the file stops being valid JSON, it keeps the folders it listed last, and says so on stderr and in the
+removed goes. That's the [service](/service/) too: it serves the list, so `localidraw add` is all it takes. And
+`localidraw` in a terminal while one is running already doesn't start a second: it prints the address of the one
+running (opening it, with `--open`) and exits `0`. If the file stops being valid JSON, it keeps the folders it listed last, and says so on stderr and in the
 page, until you fix it.
 
 A folder that **isn't there** any more (an unmounted drive, a clone you deleted) stays in the list, greyed out as
@@ -52,7 +54,7 @@ folder, or in Scratch when there's none. The folder is made with its first canva
 nothing.
 
 Scratch is the one place under `~/.localidraw` that holds drawings: **back it up** like any folder of your own work.
-The rest of `~/.localidraw` (`runtime.json`, the service's log) can go.
+The rest of `~/.localidraw` (`runtime.json`, the service's log) can go, but for `config.json`, the list.
 
 ## One folder alone
 
@@ -72,8 +74,9 @@ Every folder works as it does on its own: Localidraw reads and writes only `.exc
 disk are watched. A canvas can be renamed or moved within its folder, but not into another folder yet: a move is a
 hard link, which can't cross from one drive to another.
 
-Each listed folder costs file watches (one per folder inside it, on Linux). `localidraw doctor` counts them against
-the system's limit.
+Each listed folder costs file watches (one per folder inside it, on Linux). `localidraw doctor` counts them, across
+Scratch and every listed folder, against the system's limit. It also checks that `config.json` parses and that every
+listed folder is there.
 
 ## The Library
 

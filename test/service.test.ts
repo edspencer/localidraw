@@ -113,7 +113,7 @@ test("on Windows, status says not installed (4) and every other command says it 
   assert.equal(doc.installed, false);
   assert.match(doc.warnings[0], /not win32 yet/);
   assert.match((await service(["status"], { ...m, platform: "win32" })).stdout, /isn't installed as a service: .*macOS \(launchd\) and Linux/);
-  for (const args of [["install", m.folder], ["uninstall"], ["start"], ["stop"], ["restart"], ["logs"]]) {
+  for (const args of [["install"], ["uninstall"], ["start"], ["stop"], ["restart"], ["logs"]]) {
     const r = await service(args, { ...m, platform: "win32" });
     assert.equal(r.code, 1, args[0]);
     assert.match(r.stderr, new RegExp(`^localidraw: \`localidraw service ${args[0]}\` runs on macOS \\(launchd\\) and Linux`), args[0]);
@@ -121,17 +121,19 @@ test("on Windows, status says not installed (4) and every other command says it 
   }
 });
 
-test("install writes a unit that runs the installed CLI with serve, the folder and every setting, then waits for it", async () => {
+test("install writes a unit that runs the installed CLI with serve, no folder and every setting, then waits for it", async () => {
   const m = machine();
   const sd = fakeSystemd();
   let waited = "";
-  const r = await service(["install", m.folder, "--port", "4000"], { ...m, run: sd.run, waitReady: async (u) => { waited = u; return "ready"; } });
+  const r = await service(["install", "--port", "4000"], { ...m, run: sd.run, waitReady: async (u) => { waited = u; return "ready"; } });
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /✓ Localidraw is installed as a user service, and running at http:\/\/localhost:4000\//);
+  assert.match(r.stdout, /Serves: Scratch \(.*drawings\) and 0 folders/);
+  assert.match(r.stdout, /`localidraw add <folder>` lists a folder/);
   assert.equal(waited, "http://127.0.0.1:4000/");
   const unit = readFileSync(unitFile(m.homeDir), "utf8");
   const cli = join(m.pkgRoot, "dist", "server", "cli.js");
-  assert.deepEqual(parseUnitArgv(unit).slice(1), [cli, "serve", m.folder, "--port", "4000", "--host", "127.0.0.1"]);
+  assert.deepEqual(parseUnitArgv(unit).slice(1), [cli, "serve", "--port", "4000", "--host", "127.0.0.1"]);
   assert.ok(unit.includes(`StandardOutput=append:${join(m.homeDir, ".localidraw", "logs", "service.log")}`), unit);
   assert.match(unit, /^Restart=always$/m);
   assert.ok(existsSync(join(m.homeDir, ".localidraw", "logs")), "the log's folder is made");
@@ -142,14 +144,14 @@ test("install writes a unit that runs the installed CLI with serve, the folder a
 test("status reads it all back from the unit, with the versions, and exits 0 only when it answers", async () => {
   const m = machine({ version: "1.2.3" });
   const sd = fakeSystemd();
-  await service(["install", m.folder, "--host", "0.0.0.0", "--allowed-host", "draw.example", "--poll", "500"], { ...m, run: sd.run });
+  await service(["install", "--host", "0.0.0.0", "--allowed-host", "draw.example", "--poll", "500"], { ...m, run: sd.run });
   const asked: string[] = [];
   const up = await service(["status", "--json"], { ...m, run: sd.run, probe: async (u) => { asked.push(u); return { ok: true, version: "1.2.3" }; } });
   assert.equal(up.code, 0);
   const doc = JSON.parse(up.stdout);
   assert.deepEqual(
-    { installed: doc.installed, running: doc.running, answering: doc.answering, installedVersion: doc.installedVersion, runningVersion: doc.runningVersion, port: doc.port, url: doc.url, pid: doc.pid, folder: doc.folder, host: doc.host, allowedHosts: doc.allowedHosts, poll: doc.poll, linger: doc.linger, manager: doc.manager },
-    { installed: true, running: true, answering: true, installedVersion: "1.2.3", runningVersion: "1.2.3", port: 3729, url: "http://localhost:3729/", pid: 4242, folder: m.folder, host: "0.0.0.0", allowedHosts: ["draw.example"], poll: 500, linger: true, manager: "systemd" },
+    { installed: doc.installed, running: doc.running, answering: doc.answering, installedVersion: doc.installedVersion, runningVersion: doc.runningVersion, port: doc.port, url: doc.url, pid: doc.pid, folders: doc.folders, scratch: doc.scratch, host: doc.host, allowedHosts: doc.allowedHosts, poll: doc.poll, linger: doc.linger, manager: doc.manager },
+    { installed: true, running: true, answering: true, installedVersion: "1.2.3", runningVersion: "1.2.3", port: 3729, url: "http://localhost:3729/", pid: 4242, folders: 0, scratch: join(m.homeDir, ".localidraw", "drawings"), host: "0.0.0.0", allowedHosts: ["draw.example"], poll: 500, linger: true, manager: "systemd" },
   );
   assert.equal(doc.log, join(m.homeDir, ".localidraw", "logs", "service.log"));
   assert.deepEqual(doc.warnings, []);
@@ -168,21 +170,91 @@ test("status reads it all back from the unit, with the versions, and exits 0 onl
   assert.match(down.stdout, /isn't running/);
 });
 
-test("status warns when the Node, the CLI or the folder it names has gone", async () => {
+test("status warns when the Node or the CLI it names has gone, or config.json doesn't parse", async () => {
   const m = machine();
   const sd = fakeSystemd();
-  await service(["install", m.folder], { ...m, run: sd.run });
-  rmSync(m.folder, { recursive: true });
+  await service(["install"], { ...m, run: sd.run });
   rmSync(join(m.pkgRoot, "dist", "server", "cli.js"));
+  writeFileSync(join(m.homeDir, ".localidraw", "config.json"), "{ broken");
   const doc = JSON.parse((await service(["status", "--json"], { ...m, run: sd.run })).stdout);
   assert.ok(doc.warnings.some((w: string) => /cli\.js, which isn't there any more/.test(w)), JSON.stringify(doc.warnings));
-  assert.ok(doc.warnings.some((w: string) => /The folder it serves, .*, isn't there any more/.test(w)), JSON.stringify(doc.warnings));
+  assert.ok(doc.warnings.some((w: string) => /config\.json isn't valid JSON.*Fix the file, or delete it/.test(w)), JSON.stringify(doc.warnings));
+  assert.equal(doc.folders, null, "no count from a list that doesn't parse");
+});
+
+test("status says how many folders are listed, and Scratch, in its prose and its JSON", async () => {
+  const m = machine();
+  const sd = fakeSystemd();
+  await service(["install"], { ...m, run: sd.run });
+  const listed = (n: number) => writeFileSync(join(m.homeDir, ".localidraw", "config.json"),
+    JSON.stringify({ folders: Array.from({ length: n }, (_, i) => ({ path: join(m.root, `f${i}`), name: `f${i}` })) }));
+  listed(2);
+  const prose = await service(["status"], { ...m, run: sd.run, probe: async () => ({ ok: true, version: "1.2.3" }) });
+  assert.match(prose.stdout, /\n {2}Serves: {2}Scratch \(.*\.localidraw\/drawings\) and 2 folders \(localidraw folders lists them\)\n/);
+  assert.doesNotMatch(prose.stdout, /Folder:/);
+  listed(1);
+  const j = await service(["status", "--json"], { ...m, run: sd.run });
+  const doc = JSON.parse(j.stdout);
+  assert.deepEqual([doc.folders, doc.scratch, "folder" in doc], [1, join(m.homeDir, ".localidraw", "drawings"), false]);
+  assert.equal(j.stderr, "");
+});
+
+test("install takes no folder: a folder is a usage error that points at localidraw add", async () => {
+  const m = machine();
+  const sd = fakeSystemd();
+  await assert.rejects(service(["install", m.folder], { ...m, run: sd.run }),
+    (e: Error) => e instanceof UsageError && /`service install` takes no folder .*To list this one: localidraw add /.test(e.message));
+  await assert.rejects(service(["install", "--port", "4000", "./notes"], { ...m, run: sd.run }), /localidraw add \.\/notes/);
+  assert.ok(!existsSync(unitFile(m.homeDir)), "nothing written");
+  assert.throws(() => parseServiceArgs(["start", m.folder]), /takes no folder/);
+});
+
+test("a unit from before 0.9, which names a folder, still reads back; status says it's old, and refresh and restart drop the folder", async () => {
+  const m = machine();
+  const sd = fakeSystemd();
+  await service(["install", "--port", "4007"], { ...m, run: sd.run });
+  // Put the folder back in, as 0.8 wrote it: `serve <folder> --port …`.
+  const file = unitFile(m.homeDir);
+  writeFileSync(file, readFileSync(file, "utf8").replace(/ serve --port/, ` serve ${m.folder} --port`));
+  assert.deepEqual(settingsOf(serveArgsFromUnit(m.homeDir)), { port: 4007, host: "127.0.0.1" });
+  const doc = JSON.parse((await service(["status", "--json"], { ...m, run: sd.run })).stdout);
+  assert.ok(doc.warnings.some((w: string) => /older Localidraw, and serves one folder rather than the list/.test(w)), JSON.stringify(doc.warnings));
+  const refreshed = await service(["install", "--refresh"], { ...m, run: sd.run });
+  assert.equal(refreshed.code, 0, refreshed.stderr);
+  assert.deepEqual(serveArgsFromUnit(m.homeDir), ["serve", "--port", "4007", "--host", "127.0.0.1"]);
+  writeFileSync(file, readFileSync(file, "utf8").replace(/ serve --port/, ` serve ${m.folder} --port`));
+  const restarted = await service(["restart"], { ...m, run: sd.run });
+  assert.equal(restarted.code, 0, restarted.stderr);
+  assert.match(restarted.stdout, /Re-writing .* an older Localidraw wrote/);
+  assert.deepEqual(serveArgsFromUnit(m.homeDir), ["serve", "--port", "4007", "--host", "127.0.0.1"]);
+});
+
+test("--open (-o) on install and start opens the page once it answers, and not when it doesn't; --json prints nothing more", async () => {
+  const m = machine();
+  const sd = fakeSystemd();
+  const opened: string[] = [];
+  const open = (u: string) => { opened.push(u); };
+  assert.equal((await service(["install", "--port", "4008"], { ...m, run: sd.run, open })).code, 0);
+  assert.deepEqual(opened, [], "not without --open");
+  const inst = await service(["install", "--port", "4008", "-o", "--json"], { ...m, run: sd.run, open });
+  assert.equal(inst.code, 0, inst.stderr);
+  assert.deepEqual(opened, ["http://localhost:4008/"]);
+  assert.equal(JSON.parse(inst.stdout).ok, true, "one document still");
+  await service(["stop"], { ...m, run: sd.run });
+  const late = await service(["start", "--open"], { ...m, run: sd.run, open, waitReady: async () => "timeout" });
+  assert.equal(late.code, 1);
+  assert.equal(opened.length, 1, "a start that didn't answer opens nothing");
+  sd.active = false;
+  assert.equal((await service(["start", "--open"], { ...m, run: sd.run, open })).code, 0);
+  assert.equal((await service(["start", "-o"], { ...m, run: sd.run, open })).code, 0, "already running: opens it all the same");
+  assert.deepEqual(opened, ["http://localhost:4008/", "http://localhost:4008/", "http://localhost:4008/"]);
+  for (const a of ["stop", "restart", "status", "uninstall"]) assert.throws(() => parseServiceArgs([a, "--open"]), UsageError, a);
 });
 
 test("status and doctor warn when the service runs another install of Localidraw than this one", async () => {
   const m = machine();
   const sd = fakeSystemd();
-  await service(["install", m.folder], { ...m, run: sd.run });
+  await service(["install"], { ...m, run: sd.run });
   const same = JSON.parse((await service(["status", "--json"], { ...m, run: sd.run })).stdout);
   assert.ok(!same.warnings.some((w: string) => /another install/.test(w)), JSON.stringify(same.warnings));
 
@@ -197,7 +269,7 @@ test("status and doctor warn when the service runs another install of Localidraw
 
   const { checks } = await diagnose({
     ctx: { platform: "linux", homeDir: m.homeDir, nodePath: process.execPath, pkgRoot: other, run: sd.run, fetch: (async () => { throw new Error("refused"); }) as typeof fetch },
-    version: "1.2.3", engines: undefined, entry: join(other, "dist", "server", "cli.js"), webDir: join(other, "dist", "web"), cwd: m.folder,
+    version: "1.2.3", engines: undefined, entry: join(other, "dist", "server", "cli.js"), webDir: join(other, "dist", "web"),
     offline: true, env: {}, npmGlobalRoot: () => undefined, isListening: async () => false, maxWatches: () => undefined,
   });
   const unit = checks.filter((c) => c.id === "unit");
@@ -210,18 +282,16 @@ test("status and doctor warn when the service runs another install of Localidraw
 test("a reinstall keeps what the unit records unless told otherwise, and restarts a running service", async () => {
   const m = machine();
   const sd = fakeSystemd();
-  await service(["install", m.folder, "--port", "4001", "--host", "0.0.0.0", "--allowed-host", "a.example", "--poll"], { ...m, run: sd.run });
+  await service(["install", "--port", "4001", "--host", "0.0.0.0", "--allowed-host", "a.example", "--poll"], { ...m, run: sd.run });
   sd.calls.length = 0;
-  const r = await service(["install"], { ...m, run: sd.run }); // the folder comes from the unit too
+  const r = await service(["install"], { ...m, run: sd.run });
   assert.equal(r.code, 0, r.stderr);
-  assert.deepEqual(settingsOf(serveArgsFromUnit(m.homeDir)), { folder: m.folder, port: 4001, host: "0.0.0.0", allowedHosts: ["a.example"], poll: 2000 });
+  assert.deepEqual(settingsOf(serveArgsFromUnit(m.homeDir)), { port: 4001, host: "0.0.0.0", allowedHosts: ["a.example"], poll: 2000 });
   assert.ok(sd.calls.includes("systemctl --user restart localidraw.service"), "enable --now leaves an active unit alone, so it restarts it");
 
-  const other = join(m.root, "other");
-  mkdirSync(other);
-  const moved = await service(["install", other, "--allowed-host", "b.example", "--port", "4002"], { ...m, run: sd.run });
-  assert.match(moved.stdout, /one Localidraw service per machine: moving it from .*canvases to .*other/);
-  assert.deepEqual(settingsOf(serveArgsFromUnit(m.homeDir)), { folder: other, port: 4002, host: "0.0.0.0", allowedHosts: ["b.example"], poll: 2000 });
+  const changed = await service(["install", "--allowed-host", "b.example", "--port", "4002"], { ...m, run: sd.run });
+  assert.equal(changed.code, 0, changed.stderr);
+  assert.deepEqual(settingsOf(serveArgsFromUnit(m.homeDir)), { port: 4002, host: "0.0.0.0", allowedHosts: ["b.example"], poll: 2000 });
 });
 
 /** The arguments after Node and the script, from the unit's ExecStart. */
@@ -235,49 +305,43 @@ test("--refresh exits 4 with nothing installed, and otherwise re-writes the unit
   const none = await service(["install", "--refresh"], { ...m, run: sd.run });
   assert.equal(none.code, 4);
   assert.ok(!existsSync(unitFile(m.homeDir)), "no first install from defaults");
-  await service(["install", m.folder, "--port", "4003"], { ...m, run: sd.run });
+  await service(["install", "--port", "4003"], { ...m, run: sd.run });
   const before = readFileSync(unitFile(m.homeDir), "utf8");
   const r = await service(["install", "--refresh"], { ...m, run: sd.run });
   assert.equal(r.code, 0, r.stderr);
-  assert.match(r.stdout, /Re-writing .*localidraw\.service\n {2}Keeping: localidraw serve .* --port 4003 --host 127\.0\.0\.1/);
+  assert.match(r.stdout, /Re-writing .*localidraw\.service\n {2}Keeping: localidraw serve --port 4003 --host 127\.0\.0\.1/);
   assert.equal(readFileSync(unitFile(m.homeDir), "utf8"), before, "a faithful refresh is byte-identical");
   await service(["install", "--refresh", "--port", "4004"], { ...m, run: sd.run });
   assert.equal(settingsOf(serveArgsFromUnit(m.homeDir)).port, 4004);
 });
 
-test("install refuses npx's cache, a checkout without --from-checkout, an unbuilt package, and a folder in ~/.localidraw", async () => {
+test("install refuses npx's cache, a checkout without --from-checkout, and an unbuilt package", async () => {
   const npx = machine({ pkgPath: ["npm-cache", "_npx", "abc123", "node_modules", "localidraw"] });
-  const r1 = await service(["install", npx.folder], { ...npx, run: fakeSystemd().run });
+  const r1 = await service(["install"], { ...npx, run: fakeSystemd().run });
   assert.equal(r1.code, 1);
   assert.match(r1.stderr, /npx's cache/);
   assert.ok(!existsSync(unitFile(npx.homeDir)));
 
   const checkout = machine({ pkgPath: ["src", "localidraw"] });
-  const r2 = await service(["install", checkout.folder], { ...checkout, run: fakeSystemd().run });
+  const r2 = await service(["install"], { ...checkout, run: fakeSystemd().run });
   assert.equal(r2.code, 1);
   assert.match(r2.stderr, /is a checkout .* --from-checkout/s);
-  assert.equal((await service(["install", checkout.folder, "--from-checkout"], { ...checkout, run: fakeSystemd().run })).code, 0);
+  assert.equal((await service(["install", "--from-checkout"], { ...checkout, run: fakeSystemd().run })).code, 0);
 
   const unbuilt = machine();
   rmSync(join(unbuilt.pkgRoot, "dist", "web"), { recursive: true });
-  const r3 = await service(["install", unbuilt.folder], { ...unbuilt, run: fakeSystemd().run });
+  const r3 = await service(["install"], { ...unbuilt, run: fakeSystemd().run });
   assert.equal(r3.code, 1);
   assert.match(r3.stderr, /isn't built/);
-
-  const m = machine();
-  const inside = join(m.homeDir, ".localidraw", "drawings");
-  mkdirSync(inside, { recursive: true });
-  await assert.rejects(service(["install", inside], { ...m, run: fakeSystemd().run }), /inside .*\.localidraw, Localidraw's own folder/);
-  await assert.rejects(service(["install", join(m.root, "nope")], { ...m, run: fakeSystemd().run }), /isn't a folder/);
 });
 
 test("install keeps the hosting rule: a host beyond loopback needs an allowed host, at install as at serve", async () => {
   const m = machine();
   const sd = fakeSystemd();
-  await assert.rejects(service(["install", m.folder, "--host", "0.0.0.0"], { ...m, run: sd.run }), (e: Error) => e instanceof UsageError && /refusing to listen on 0\.0\.0\.0 without an allowed host/.test(e.message));
-  await assert.rejects(service(["install", m.folder, "--host", "0.0.0.0", "--allowed-host", "http://x"], { ...m, run: sd.run }), /not a host name/);
+  await assert.rejects(service(["install", "--host", "0.0.0.0"], { ...m, run: sd.run }), (e: Error) => e instanceof UsageError && /refusing to listen on 0\.0\.0\.0 without an allowed host/.test(e.message));
+  await assert.rejects(service(["install", "--host", "0.0.0.0", "--allowed-host", "http://x"], { ...m, run: sd.run }), /not a host name/);
   assert.ok(!existsSync(unitFile(m.homeDir)));
-  const hosted = await service(["install", m.folder, "--host", "192.168.1.5", "--allowed-host", "draw.lan"], { ...m, run: sd.run });
+  const hosted = await service(["install", "--host", "192.168.1.5", "--allowed-host", "draw.lan"], { ...m, run: sd.run });
   assert.equal(hosted.code, 0);
   assert.match(hosted.stdout, /has no login/);
   assert.match(hosted.stdout, /running at http:\/\/192\.168\.1\.5:3729\//);
@@ -286,17 +350,17 @@ test("install keeps the hosting rule: a host beyond loopback needs an allowed ho
 test("install refuses a port something else holds, and says when it's another Localidraw", async () => {
   const m = machine();
   const sd = fakeSystemd();
-  const other = await service(["install", m.folder], { ...m, run: sd.run, portTaken: async () => true });
+  const other = await service(["install"], { ...m, run: sd.run, portTaken: async () => true });
   assert.equal(other.code, 1);
   assert.match(other.stderr, /port 3729 is in use by something else/);
-  const serve = await service(["install", m.folder], { ...m, run: sd.run, portTaken: async () => true, probe: async () => ({ ok: true, version: "0.5.0" }) });
+  const serve = await service(["install"], { ...m, run: sd.run, portTaken: async () => true, probe: async () => ({ ok: true, version: "0.5.0" }) });
   assert.match(serve.stderr, /in use by another Localidraw \(0\.5\.0\), probably a `localidraw serve`/);
   assert.ok(!existsSync(unitFile(m.homeDir)));
   // Its own port, held by itself, is fine: that's a reinstall.
-  await service(["install", m.folder], { ...m, run: sd.run });
-  assert.equal((await service(["install", m.folder], { ...m, run: sd.run, portTaken: async () => true })).code, 0);
+  await service(["install"], { ...m, run: sd.run });
+  assert.equal((await service(["install"], { ...m, run: sd.run, portTaken: async () => true })).code, 0);
   // But a move to a port something else holds is refused.
-  assert.equal((await service(["install", m.folder, "--port", "4005"], { ...m, run: sd.run, portTaken: async () => true })).code, 1);
+  assert.equal((await service(["install", "--port", "4005"], { ...m, run: sd.run, portTaken: async () => true })).code, 1);
 });
 
 test("an install that never answers exits 1 and prints the end of the log", async () => {
@@ -304,7 +368,7 @@ test("an install that never answers exits 1 and prints the end of the log", asyn
   const sd = fakeSystemd();
   mkdirSync(join(m.homeDir, ".localidraw", "logs"), { recursive: true });
   writeFileSync(join(m.homeDir, ".localidraw", "logs", "service.log"), "first\nlocalidraw: port 3729 is in use\n");
-  const r = await service(["install", m.folder], { ...m, run: sd.run, waitReady: async () => "timeout" });
+  const r = await service(["install"], { ...m, run: sd.run, waitReady: async () => "timeout" });
   assert.equal(r.code, 1);
   assert.match(r.stdout, /didn't answer at http:\/\/localhost:3729\/[^]*port 3729 is in use/);
 });
@@ -312,25 +376,25 @@ test("an install that never answers exits 1 and prints the end of the log", asyn
 test("a first install the manager refuses leaves no unit behind; a refused reinstall keeps the old one", async () => {
   const m = machine();
   const noSystemd: Runner = () => ({ status: null, stdout: "", stderr: "" });
-  const r = await service(["install", m.folder], { ...m, run: noSystemd });
+  const r = await service(["install"], { ...m, run: noSystemd });
   assert.equal(r.code, 1);
   assert.match(r.stderr, /systemctl isn't available/);
   assert.ok(!existsSync(unitFile(m.homeDir)), "no unit for a service that never existed");
   assert.equal((await service(["status"], { ...m, run: noSystemd })).code, 4);
-  await service(["install", m.folder], { ...m, run: fakeSystemd().run });
-  assert.equal((await service(["install", m.folder, "--port", "4010"], { ...m, run: noSystemd })).code, 1);
+  await service(["install"], { ...m, run: fakeSystemd().run });
+  assert.equal((await service(["install", "--port", "4010"], { ...m, run: noSystemd })).code, 1);
   assert.ok(existsSync(unitFile(m.homeDir)), "a reinstall that failed leaves a unit, which status and restart can see");
 });
 
 test("--dry-run prints the unit and writes nothing", async () => {
   const m = machine();
   const sd = fakeSystemd();
-  const r = await service(["install", m.folder, "--dry-run"], { ...m, run: sd.run });
+  const r = await service(["install", "--dry-run"], { ...m, run: sd.run });
   assert.equal(r.code, 0);
   assert.match(r.stdout, /not written: --dry-run[^]*ExecStart=.* serve /);
   assert.ok(!existsSync(unitFile(m.homeDir)));
   assert.deepEqual(sd.calls.filter((c) => c.startsWith("systemctl")), []);
-  const mac = await service(["install", m.folder, "--dry-run"], { ...m, platform: "darwin", run: fakeLaunchd().run });
+  const mac = await service(["install", "--dry-run"], { ...m, platform: "darwin", run: fakeLaunchd().run });
   assert.match(mac.stdout, /<string>net\.edspencer\.localidraw<\/string>[^]*<string>serve<\/string>/);
 });
 
@@ -338,7 +402,7 @@ test("stop stops without disabling; start and restart wait for it; each exits 4 
   const m = machine();
   const sd = fakeSystemd();
   for (const a of ["start", "stop", "restart", "logs"]) assert.equal((await service([a], { ...m, run: sd.run })).code, 4, a);
-  await service(["install", m.folder], { ...m, run: sd.run });
+  await service(["install"], { ...m, run: sd.run });
   sd.calls.length = 0;
   const stopped = await service(["stop"], { ...m, run: sd.run });
   assert.equal(stopped.code, 0);
@@ -376,7 +440,7 @@ function busyAnswer(counts: Record<string, number>) {
 test("stop and restart refuse with 75 while a save is being written, asking the unit's own port; --force goes ahead", async () => {
   const m = machine();
   const sd = fakeSystemd();
-  await service(["install", m.folder, "--port", "4006"], { ...m, run: sd.run });
+  await service(["install", "--port", "4006"], { ...m, run: sd.run });
   const busy = busyAnswer({ canvas: 1, library: 0 });
   for (const a of ["stop", "restart"]) {
     sd.calls.length = 0;
@@ -420,7 +484,7 @@ test("status repeats the last update check, in its JSON and on stderr, and never
   assert.equal(j.code, 4);
   assert.deepEqual(JSON.parse(j.stdout).update, { latest: "99.0.0", updateAvailable: true, checkedAt: JSON.parse(readFileSync(join(home, "update-check.json"), "utf8")).checkedAt });
   assert.match(j.stderr, new RegExp(`^Localidraw 99\\.0\\.0 is available \\(you have ${pkg.version.replace(/\./g, "\\.")}\\)\\.\n  Run: localidraw update\n  Changes: https://github\\.com/edspencer/localidraw/releases/tag/v99\\.0\\.0\n$`));
-  await service(["install", m.folder], { ...m, run: sd.run });
+  await service(["install"], { ...m, run: sd.run });
   const prose = await service(["status"], { ...m, run: sd.run });
   assert.match(prose.stdout, /^Localidraw is running/);
   assert.match(prose.stderr, /Localidraw 99\.0\.0 is available/);
@@ -434,7 +498,7 @@ test("status repeats the last update check, in its JSON and on stderr, and never
 test("restart re-writes a unit whose Node has gone", async () => {
   const m = machine();
   const sd = fakeSystemd();
-  await service(["install", m.folder, "--port", "4006"], { ...m, run: sd.run, nodePath: join(m.root, "old-node") });
+  await service(["install", "--port", "4006"], { ...m, run: sd.run, nodePath: join(m.root, "old-node") });
   sd.calls.length = 0;
   const r = await service(["restart"], { ...m, run: sd.run });
   assert.equal(r.code, 0, r.stderr);
@@ -447,7 +511,7 @@ test("restart re-writes a unit whose Node has gone", async () => {
 test("uninstall removes the unit, keeps the log, and is fine with nothing installed", async () => {
   const m = machine();
   const sd = fakeSystemd();
-  await service(["install", m.folder], { ...m, run: sd.run });
+  await service(["install"], { ...m, run: sd.run });
   const log = join(m.homeDir, ".localidraw", "logs", "service.log");
   writeFileSync(log, "kept\n");
   const r = await service(["uninstall"], { ...m, run: sd.run });
@@ -462,7 +526,7 @@ test("uninstall removes the unit, keeps the log, and is fine with nothing instal
 test("logs prints the last lines of the file the unit names", async () => {
   const m = machine();
   const sd = fakeSystemd();
-  await service(["install", m.folder], { ...m, run: sd.run });
+  await service(["install"], { ...m, run: sd.run });
   const empty = await service(["logs"], { ...m, run: sd.run });
   assert.equal(empty.code, 0);
   assert.match(empty.stderr, /nothing has been written to .*service\.log yet/);
@@ -478,11 +542,11 @@ test("on macOS it's a LaunchAgent: bootstrap to install and start, bootout to st
   const ld = fakeLaunchd();
   const ctx = { ...m, platform: "darwin" as const, run: ld.run };
   const plist = join(m.homeDir, "Library", "LaunchAgents", "net.edspencer.localidraw.plist");
-  const r = await service(["install", m.folder], ctx);
+  const r = await service(["install"], ctx);
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /installed as a LaunchAgent/);
   const xml = readFileSync(plist, "utf8");
-  assert.match(xml, new RegExp(`<string>serve</string>\\s*<string>${m.folder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</string>\\s*<string>--port</string>\\s*<string>3729</string>`));
+  assert.match(xml, /<string>serve<\/string>\s*<string>--port<\/string>\s*<string>3729<\/string>/);
   const s = JSON.parse((await service(["status", "--json"], { ...ctx, probe: async () => ({ ok: true, version: "1.2.3" }) })).stdout);
   assert.equal(s.manager, "launchd");
   assert.equal(s.pid, 777);
@@ -512,20 +576,17 @@ test("--json on install, uninstall, start, stop and restart: one document on std
     assert.deepEqual([r.doc.ok, r.doc.action, r.doc.error, r.doc.installed], [false, a, "not installed", false], a);
     assert.match(r.stderr, /isn't installed as a service/, a);
   }
-  const dry = await json(["install", m.folder, "--dry-run"]);
+  const dry = await json(["install", "--dry-run"]);
   assert.equal(dry.code, 0);
   assert.deepEqual([dry.doc.ok, dry.doc.dryRun, dry.doc.installed], [true, true, false]);
   assert.match(dry.doc.rendered, /^\[Unit\][^]*ExecStart=.* serve /m);
   assert.doesNotMatch(dry.stderr, /ExecStart/, "the unit is in the document, not repeated on stderr");
 
-  const inst = await json(["install", m.folder], { probe: async () => ({ ok: true, version: "1.2.3" }) });
+  const inst = await json(["install"], { probe: async () => ({ ok: true, version: "1.2.3" }) });
   assert.equal(inst.code, 0, inst.stderr);
-  assert.deepEqual([inst.doc.ok, inst.doc.action, "error" in inst.doc, inst.doc.installed, inst.doc.running, inst.doc.answering, inst.doc.folder, inst.doc.port],
-    [true, "install", false, true, true, true, m.folder, 3729]);
+  assert.deepEqual([inst.doc.ok, inst.doc.action, "error" in inst.doc, inst.doc.installed, inst.doc.running, inst.doc.answering, inst.doc.folders, inst.doc.port],
+    [true, "install", false, true, true, true, 0, 3729]);
   assert.match(inst.stderr, /✓ Localidraw is installed/);
-  const other = join(m.root, "other");
-  mkdirSync(other);
-  assert.equal((await json(["install", other])).doc.movedFrom, m.folder);
 
   const stopped = await json(["stop"]);
   assert.deepEqual([stopped.code, stopped.doc.ok, stopped.doc.wasRunning, stopped.doc.running], [0, true, true, false]);
@@ -549,7 +610,7 @@ test("--json on install, uninstall, start, stop and restart: one document on std
 
   // A refusal the manager or the checks throw: exit 1, the message as error.
   const checkout = machine({ pkgPath: ["src", "localidraw"] });
-  const refusedInstall = await service(["install", checkout.folder, "--json"], { ...checkout, run: fakeSystemd().run });
+  const refusedInstall = await service(["install", "--json"], { ...checkout, run: fakeSystemd().run });
   assert.equal(refusedInstall.code, 1);
   assert.match(JSON.parse(refusedInstall.stdout).error, /is a checkout/);
   assert.match(refusedInstall.stderr, /^localidraw: this Localidraw is a checkout/);
@@ -569,13 +630,14 @@ test("each flag belongs to its commands: anything else is a usage error", () => 
     assert.throws(() => parseServiceArgs(args), UsageError, JSON.stringify(args));
   }
   assert.equal(parseServiceArgs(["status", "--help"]), "help");
-  assert.deepEqual(parseServiceArgs(["logs", "-f", "-n", "5"]), { action: "logs", refresh: false, dryRun: false, fromCheckout: false, force: false, json: false, follow: true, lines: 5 });
+  assert.deepEqual(parseServiceArgs(["logs", "-f", "-n", "5"]), { action: "logs", refresh: false, dryRun: false, fromCheckout: false, force: false, json: false, follow: true, lines: 5, open: false });
 });
 
 test("the unit's arguments read back as the settings they were written from", () => {
-  const s = { folder: "/a b/c", port: 1234, host: "::1", allowedHosts: ["x.example", "y.example"], poll: 700 };
+  const s = { port: 1234, host: "::1", allowedHosts: ["x.example", "y.example"], poll: 700 };
   assert.deepEqual(settingsOf(serveArgs(s)), s);
-  assert.deepEqual(settingsOf(serveArgs({ folder: "/f", port: 1, host: "127.0.0.1", allowedHosts: [] })), { folder: "/f", port: 1, host: "127.0.0.1" });
+  assert.deepEqual(serveArgs({ port: 1, host: "127.0.0.1", allowedHosts: [] }), ["serve", "--port", "1", "--host", "127.0.0.1"]);
+  assert.deepEqual(settingsOf(["serve", "/old/folder", "--port", "1"]), { port: 1 }, "a folder from before 0.9 isn't a setting");
   assert.equal(urlFor("0.0.0.0", 1), "http://localhost:1/");
   assert.equal(urlFor("10.0.0.2", 1), "http://10.0.0.2:1/");
   assert.equal(urlFor("fd00::2", 1), "http://[fd00::2]:1/");
