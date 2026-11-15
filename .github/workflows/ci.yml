@@ -103,7 +103,7 @@ jobs:
     name: Browser tests (Chromium)
     runs-on: ubuntu-latest
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
       options: --ipc=host --init
     env:
       LOCALIDRAW_SNAPSHOTS: "1"
