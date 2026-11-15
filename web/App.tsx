@@ -1,7 +1,7 @@
 // The page: which canvas is open (in the URL), the projects list, and the connection to the server's events.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createCanvas, getProjects, moveCanvas, restoreCanvas, trashCanvas, type Project } from "./api.ts";
-import { CanvasesTab, TrashedNotice, type Trashed, type TrashProps } from "./CanvasesTab.tsx";
+import { createCanvas, getProjects, moveCanvas, restoreCanvas, trashCanvas, type Folder, type Project } from "./api.ts";
+import { ADD_COMMAND, CanvasesTab, CopyCommand, TrashedNotice, type Trashed, type TrashProps } from "./CanvasesTab.tsx";
 import { CanvasView, type Control } from "./CanvasView.tsx";
 import { library } from "./library.ts";
 import { prefs } from "./prefs.ts";
@@ -14,6 +14,8 @@ export function App() {
   const [rootName, setRootName] = useState("");
   /** Where a new canvas goes when no folder is chosen: Scratch, serving the list; the folder's top, serving one. */
   const [newDir, setNewDir] = useState("");
+  const [folders, setFolders] = useState<Folder[] | undefined>(undefined);
+  const [warning, setWarning] = useState<string | undefined>(undefined);
   const [path, setPath] = useState<string | null>(pathFromUrl());
   const [offline, setOffline] = useState(false);
   const onDiskChange = useRef<(path: string | null, hash: string | null) => void>(() => {});
@@ -21,7 +23,9 @@ export function App() {
   const [trashed, setTrashed] = useState<Trashed | null>(null); // the canvas last deleted, to undo
 
   const refresh = useCallback(async () => {
-    const { root, projects } = await getProjects();
+    const { root, projects, folders, warning } = await getProjects();
+    setFolders(folders);
+    setWarning(warning);
     setRootName(root === null ? "Scratch" : root.split(/[\\/]/).filter(Boolean).pop() ?? root);
     setNewDir(root === null ? "scratch/" : "");
     setProjects(projects);
@@ -45,7 +49,7 @@ export function App() {
         if (e.type === "projects") void refresh();
         if (e.type === "changed") onDiskChange.current(e.path, e.hash);
         if (e.type === "gone") onDiskChange.current(e.path, null);
-        if (e.type === "library") void library.onDisk(e.hash);
+        if (e.type === "library") void library.onDisk(e.path, e.hash);
       };
       events.onerror = () => {
         lost = true;
@@ -62,7 +66,7 @@ export function App() {
         lost = false;
         void refresh();
         onDiskChange.current(null, null);
-        void library.onDisk(undefined);
+        void library.onDisk(undefined, undefined);
       };
     };
     connect();
@@ -77,6 +81,8 @@ export function App() {
   useEffect(() => {
     if (!path && first) open(first, true);
   }, [path, first]);
+
+  useEffect(() => { void library.open(path); }, [path]);
 
   useEffect(() => {
     document.title = path ? `${path.split("/").pop()?.replace(/\.excalidraw$/, "")} · Localidraw` : "Localidraw";
@@ -142,7 +148,7 @@ export function App() {
 
   const trashProps = { trashed, onUndo: undo, onDismiss: () => setTrashed(null) };
   const tab = (
-    <CanvasesTab projects={projects} rootName={rootName} newDir={newDir} current={path} onOpen={(p) => open(p)} onCreate={create}
+    <CanvasesTab projects={projects} rootName={rootName} newDir={newDir} folders={folders} warning={warning} current={path} onOpen={(p) => open(p)} onCreate={create}
       onMove={move} onTrash={trash} {...trashProps} />
   );
   return (
@@ -151,24 +157,34 @@ export function App() {
       {path
         ? <CanvasView path={path} sidebar={tab} offline={offline} onDiskChange={(h) => { onDiskChange.current = h; }} control={(c) => { canvases.current = c; }}
             onMoved={(from, to) => { prefs.moveViewport(from, to); if (from === pathFromUrl()) open(to, true); }} />
-        : <EmptyFolder rootName={rootName} newDir={newDir} onCreate={create} {...trashProps} />}
+        : <EmptyFolder rootName={rootName} newDir={newDir} list={folders !== undefined} onCreate={create} {...trashProps} />}
     </div>
   );
 }
 
 /** A folder with no canvases yet: offer to make the first (or to bring back the one just deleted). */
-function EmptyFolder({ rootName, newDir, onCreate, trashed, onUndo, onDismiss }:
-  { rootName: string; newDir: string; onCreate: (path: string) => Promise<string | null> } & TrashProps) {
+function EmptyFolder({ rootName, newDir, list, onCreate, trashed, onUndo, onDismiss }:
+  { rootName: string; newDir: string; list: boolean; onCreate: (path: string) => Promise<string | null> } & TrashProps) {
   const [error, setError] = useState<string | null>(null);
+  // Serving the list with nothing anywhere yet (a brand-new install): draw in Scratch, or add a project's folder.
   return (
     <Screen>
       <div className="Island ld-screen__island">
-        <h1>No canvases in {rootName || "this folder"} yet</h1>
-        <p>Localidraw shows the .excalidraw files under the folder it was started in.</p>
+        <h1>{list ? "Nothing to open yet" : `No canvases in ${rootName || "this folder"} yet`}</h1>
+        <p>{list
+          ? "A new drawing goes in Scratch (~/.localidraw/drawings). Nothing is written until you make one."
+          : "Localidraw shows the .excalidraw files under the folder it was started in."}</p>
         <button type="button" className="ld-row ld-row--primary" onClick={async () => setError(await onCreate(`${newDir}untitled`))}>
-          Make the first one
+          {list ? "Start drawing" : "Make the first one"}
         </button>
         {error && <p className="ld-hint ld-hint--error">{error}</p>}
+        {list && (
+          <div className="ld-card" role="note">
+            <p className="ld-card__title">Your projects' drawings, here too</p>
+            <p className="ld-card__text">Localidraw can also edit the .excalidraw files in your projects. Add a folder from a terminal, and it shows here:</p>
+            <CopyCommand command={ADD_COMMAND} />
+          </div>
+        )}
         {trashed && <TrashedNotice trashed={trashed} onUndo={onUndo} onDismiss={onDismiss} />}
       </div>
     </Screen>

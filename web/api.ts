@@ -41,13 +41,19 @@ export async function putCanvas(path: string, baseHash: string, content: string)
 }
 
 export type LibraryFile = { libraryItems?: any[]; library?: any[] };
-/** The folder's Library file, if it has one (`shared`), with its hash. */
-export const getLibrary = () => fetch("/api/library").then((r) => reply<{ shared: false } | { shared: true; hash: string; library: LibraryFile }>(r));
+/**
+ * The Library file for the open canvas (`path` names it), if there is one (`shared`), with its hash. `creatable` is
+ * Localidraw's own, serving the list, which a first save makes (`putLibrary` with NO_FILE).
+ */
+export const getLibrary = (canvas: string | null) =>
+  fetch(`/api/library${canvas ? `?canvas=${encodeURIComponent(canvas)}` : ""}`)
+    .then((r) => reply<{ shared: false; path?: string; creatable?: boolean } | { shared: true; path?: string; hash: string; library: LibraryFile }>(r));
 
 /** Saves the Library file over the version with `baseHash`: as putCanvas, plus `gone` if the file isn't there any more. */
-export async function putLibrary(baseHash: string, content: string):
+export async function putLibrary(path: string, baseHash: string, content: string):
   Promise<{ ok: true; hash: string } | { ok: false; conflict: { hash: string; library: LibraryFile } } | { ok: false; gone: true }> {
-  const res = await fetch("/api/library", { method: "PUT", headers: { "x-base-hash": baseHash, "content-type": "application/json" }, body: content });
+  // The default Library (the folder's, or Localidraw's own) needs no path; a folder's own, serving the list, does.
+  const res = await fetch(path === "library.excalidrawlib" ? "/api/library" : `/api/library?path=${encodeURIComponent(path)}`, { method: "PUT", headers: { "x-base-hash": baseHash, "content-type": "application/json" }, body: content });
   if (res.status === 409) return { ok: false, conflict: await res.json() };
   if (res.status === 404) return { ok: false, gone: true };
   return { ok: true, ...(await reply<{ hash: string }>(res)) };

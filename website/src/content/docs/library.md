@@ -1,6 +1,6 @@
 ---
 title: The Library
-description: Excalidraw's Library of reusable shapes, kept in your browser or shared in the folder as library.excalidrawlib.
+description: Excalidraw's Library of reusable shapes, kept in your browser, in ~/.localidraw, or shared in a folder as library.excalidrawlib.
 ---
 
 The **Library** is Excalidraw's own panel of reusable shapes: select something on a canvas, open the Library tab in the
@@ -8,6 +8,18 @@ sidebar, and click **Add to library**. Drag an item back onto any canvas to use 
 files, such as those from [libraries.excalidraw.com](https://libraries.excalidraw.com/), from the panel's menu.
 
 Localidraw keeps it in one of two places.
+
+## Serving the list
+
+When Localidraw serves [the list of folders and Scratch](/folders/) (`localidraw` with no folder, or the service),
+the Library is `~/.localidraw/library.excalidrawlib`, one for every folder. Localidraw makes that file the first time
+you change the Library, starting with whatever this browser's Library had, so nothing you'd collected is left behind.
+Opening a canvas never makes it.
+
+A folder can still have a Library of its own: while one of its canvases is open, its `library.excalidrawlib` (below)
+is the Library, and switching to a canvas in another folder switches back.
+
+The rest of this page is about `localidraw <folder>`, which serves one folder alone.
 
 ## In your browser (the default)
 

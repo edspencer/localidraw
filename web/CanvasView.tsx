@@ -53,6 +53,8 @@ export type TestHandle = {
   saves: () => { state: "idle" | "due" | "saving"; checked: number; written: number; leaving: number };
   /** The ids of the items in Excalidraw's Library (web/library.ts). */
   library: () => string[];
+  /** The Library in use: its path, as the server names it, and whether it's a file yet (web/library.ts). */
+  libraryAt: () => { path: string; file: boolean };
   convertToExcalidrawElements: typeof convertToExcalidrawElements;
 };
 declare global { interface Window { localidraw?: TestHandle } }
@@ -381,7 +383,7 @@ export function CanvasView({ path, sidebar, offline, onDiskChange, onMoved, cont
     window.localidraw = { path: s.path, api: a, convertToExcalidrawElements, saves: () => ({
       state: s.saving || s.again ? "saving" : s.timer !== undefined ? "due" : "idle", checked: s.checked, written: s.written,
       leaving: leaving.current.size,
-    }), library: library.ids };
+    }), library: library.ids, libraryAt: library.where };
   };
 
   // Each time the URL names another canvas: load it, then show it. Until then, the one before stays on screen.

@@ -81,7 +81,10 @@ For agents (and people) developing Localidraw itself.
 - **The browser keeps preferences, the files keep drawings.** Viewport, theme and sidebar state live in
   `localStorage` (`web/prefs.ts`), never in a `.excalidraw` file. Excalidraw's Library lives in `localStorage` too,
   unless the root has a `library.excalidrawlib` (`web/library.ts`): then it's that file, saved like a canvas (base
-  hash, 409, merge by item, `writeAtomic`) and only when the Library changed. The server never creates that file.
+  hash, 409, merge by item, `writeAtomic`) and only when the Library changed. The server never creates a folder's
+  file. Serving the list, which Library it is follows the open canvas (`library.open`): its folder's own file if it
+  has one, and otherwise `~/.localidraw/library.excalidrawlib`, the one file the server does create, on the first
+  Library change (a PUT with `x-base-hash: none`, starting from the browser's Library).
 - **Excalidraw is pinned at 0.18.1**, the version the VS Code extension (`pomdtr.excalidraw-editor`) uses, so files
   round-trip between them. Moving to a newer Excalidraw means going through [Upgrading Excalidraw](#upgrading-excalidraw)
   below. React stays at 18: Excalidraw 0.18's bundled Radix packages declare React 18 or below.

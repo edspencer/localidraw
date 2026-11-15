@@ -2,8 +2,9 @@
 // menu (its ⋯ button, or a right-click) to rename, move or delete it. Styled with Excalidraw's own tokens
 // (docs/AESTHETIC.md), in styles.css.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Canvas, Project } from "./api.ts";
-import { CanvasIcon, CloseIcon, DotsIcon, PlusIcon, RenameIcon, SearchIcon, TrashIcon } from "./icons.tsx";
+import type { Canvas, Folder, Project } from "./api.ts";
+import { CanvasIcon, CloseIcon, CopyIcon, DotsIcon, PlusIcon, RenameIcon, SearchIcon, TrashIcon } from "./icons.tsx";
+import { prefs } from "./prefs.ts";
 
 /** The canvas last deleted: where it was, and where it is in the trash. */
 export type Trashed = { path: string; trashed: string; error?: string };
@@ -14,6 +15,10 @@ type Props = {
   rootName: string;
   /** Where a new canvas goes with none open: "" (the folder's top), or `scratch/` serving the list. */
   newDir: string;
+  /** Serving the list: Scratch, then the listed folders. Undefined serving one folder. */
+  folders?: Folder[];
+  /** Why config.json was refused (the list shown is the last good one). */
+  warning?: string;
   current: string | null;
   onOpen: (path: string) => void;
   // Each of these resolves to an error message, or null once it's done.
@@ -25,7 +30,7 @@ type Props = {
 const withoutExt = (path: string) => path.replace(/\.excalidraw$/, "");
 const nameOf = (path: string) => withoutExt(path.split("/").pop() ?? path);
 
-export function CanvasesTab({ projects, rootName, newDir, current, onOpen, onCreate, onMove, onTrash, trashed, onUndo, onDismiss }: Props) {
+export function CanvasesTab({ projects, rootName, newDir, folders, warning, current, onOpen, onCreate, onMove, onTrash, trashed, onUndo, onDismiss }: Props) {
   const [filter, setFilter] = useState("");
   const [creating, setCreating] = useState<string | null>(null); // the suggested path while the field is open
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
@@ -41,7 +46,9 @@ export function CanvasesTab({ projects, rootName, newDir, current, onOpen, onCre
     if (renaming === c.path) {
       return (
         <PathField key={c.path} suggestion={withoutExt(c.path)} label={`New path for ${c.name}`}
-          hint="Change the name, or the folder to move it; new folders are made as needed. Enter to rename, Esc to cancel."
+          hint={folders
+            ? `Change the name, or the path to move it within ${c.path.split("/")[0]}; new folders are made as needed. Enter to rename, Esc to cancel.`
+            : "Change the name, or the folder to move it; new folders are made as needed. Enter to rename, Esc to cancel."}
           onCancel={() => setRenaming(null)}
           onSubmit={async (to) => { const err = await onMove(c.path, to); if (!err) setRenaming(null); return err; }} />
       );
@@ -76,7 +83,9 @@ export function CanvasesTab({ projects, rootName, newDir, current, onOpen, onCre
 
       {creating !== null ? (
         <PathField suggestion={creating} label="New canvas path" onCancel={() => setCreating(null)}
-          hint="A path in the folder; new folders are made as needed. Enter to create, Esc to cancel."
+          hint={folders
+            ? "A path starting with its folder (scratch/, or one you've added); new folders are made as needed. Enter to create, Esc to cancel."
+            : "A path in the folder; new folders are made as needed. Enter to create, Esc to cancel."}
           onSubmit={async (path) => { const err = await onCreate(path); if (!err) setCreating(null); return err; }} />
       ) : (
         <button type="button" className="ld-row" onClick={() => setCreating(`${currentDir}untitled`)}>
@@ -85,19 +94,51 @@ export function CanvasesTab({ projects, rootName, newDir, current, onOpen, onCre
       )}
 
       {trashed && <TrashedNotice trashed={trashed} onUndo={onUndo} onDismiss={onDismiss} />}
+      {warning && <p className="ld-hint ld-hint--error ld-warning" role="alert">{warning}. Showing the folders it listed before.</p>}
+      {folders && <AddFolder folders={folders} />}
 
       <div className="ld-projects" onScroll={() => setMenu(null)}>
-        {shown.length === 0 && <p className="ld-empty">{needle ? "No canvas matches." : "No canvases here yet."}</p>}
-        {shown.map((p) => (
-          <section key={p.dir} className="ld-project">
-            <header className="ld-project__header">
-              <span className="ld-project__name" title={p.dir || rootName}>{p.dir || rootName}</span>
-              <button type="button" className="ld-icon-button" title={`New canvas in ${p.dir || rootName}`}
-                onClick={() => setCreating(`${p.dir ? `${p.dir}/` : ""}untitled`)}>{PlusIcon}</button>
-            </header>
-            {p.canvases.map(row)}
-          </section>
-        ))}
+        {folders ? folders.map((f) => {
+          const mine = shown.filter((p) => p.folder === f.name);
+          if (needle && mine.length === 0) return null;
+          const label = f.scratch ? "Scratch" : f.name;
+          return (
+            <section key={f.name} className={`ld-folder${f.missing ? " ld-folder--missing" : ""}`} aria-label={label}>
+              <header className="ld-project__header">
+                <span className="ld-project__name" title={f.path}>{label}</span>
+                {f.missing
+                  ? <span className="ld-folder__tag">missing</span>
+                  : <button type="button" className="ld-icon-button" title={`New canvas in ${label}`}
+                      onClick={() => setCreating(`${f.name}/untitled`)}>{PlusIcon}</button>}
+              </header>
+              {f.missing && <p className="ld-folder__note" title={f.path}>It isn't there right now. It shows again once it's back.</p>}
+              {!f.missing && mine.length === 0 && <p className="ld-folder__note">{f.scratch ? "Nothing here yet. New canvases go here unless you pick a folder." : "No canvases here yet."}</p>}
+              {mine.map((p) => p.dir === f.name ? <div key={p.dir}>{p.canvases.map(row)}</div> : (
+                <section key={p.dir} className="ld-project ld-project--sub">
+                  <header className="ld-project__header">
+                    <span className="ld-project__name" title={p.dir}>{p.dir.slice(f.name.length + 1)}</span>
+                    <button type="button" className="ld-icon-button" title={`New canvas in ${p.dir}`}
+                      onClick={() => setCreating(`${p.dir}/untitled`)}>{PlusIcon}</button>
+                  </header>
+                  {p.canvases.map(row)}
+                </section>
+              ))}
+            </section>
+          );
+        }) : <>
+          {shown.length === 0 && <p className="ld-empty">{needle ? "No canvas matches." : "No canvases here yet."}</p>}
+          {shown.map((p) => (
+            <section key={p.dir} className="ld-project">
+              <header className="ld-project__header">
+                <span className="ld-project__name" title={p.dir || rootName}>{p.dir || rootName}</span>
+                <button type="button" className="ld-icon-button" title={`New canvas in ${p.dir || rootName}`}
+                  onClick={() => setCreating(`${p.dir ? `${p.dir}/` : ""}untitled`)}>{PlusIcon}</button>
+              </header>
+              {p.canvases.map(row)}
+            </section>
+          ))}
+        </>}
+        {folders && needle && shown.length === 0 && <p className="ld-empty">No canvas matches.</p>}
       </div>
 
       {menu && (
@@ -211,5 +252,74 @@ function PathField({ suggestion, label, hint, onSubmit, onCancel }:
       </label>
       <p className={error ? "ld-hint ld-hint--error" : "ld-hint"}>{error ?? hint}</p>
     </div>
+  );
+}
+
+/** The command that adds a folder, for the card and the hint. */
+export const ADD_COMMAND = "localidraw add ~/path/to/project";
+
+/**
+ * A command to copy: a copy button, or, where the clipboard isn't available (a page over plain HTTP that isn't
+ * localhost), the text selected so Ctrl-C or ⌘C copies it.
+ */
+export function CopyCommand({ command }: { command: string }) {
+  const code = useRef<HTMLElement>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const select = () => {
+    const el = code.current;
+    if (!el) return;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+  const copy = async () => {
+    try {
+      if (!navigator.clipboard) throw new Error("no clipboard");
+      await navigator.clipboard.writeText(command);
+      setSaid("Copied");
+    } catch {
+      select();
+      setSaid(/Mac|iPhone|iPad/.test(navigator.platform) ? "Selected: press ⌘C" : "Selected: press Ctrl+C");
+    }
+    setTimeout(() => setSaid(null), 2500);
+  };
+  return (
+    <div className="ld-command">
+      <code ref={code} onClick={select}>{command}</code>
+      <button type="button" className="ld-icon-button ld-command__copy" title="Copy the command" aria-label="Copy the command" onClick={() => void copy()}>{CopyIcon}</button>
+      {said && <span className="ld-command__said" role="status">{said}</span>}
+    </div>
+  );
+}
+
+/**
+ * Serving the list with no folders added: a card saying Localidraw can edit the drawings in your projects too, until
+ * it's dismissed. After that (and once there are folders), a small "Add a folder" that opens to the command. Adding
+ * a folder from the page isn't offered: a page that could point the server at any path would be too much reach.
+ */
+function AddFolder({ folders }: { folders: Folder[] }) {
+  const [dismissed, setDismissed] = useState(prefs.addFolderDismissed());
+  const [open, setOpen] = useState(false);
+  const none = !folders.some((f) => !f.scratch);
+  if (none && !dismissed) {
+    return (
+      <div className="ld-card" role="note">
+        <button type="button" className="ld-trashed__close ld-card__close" aria-label="Dismiss" title="Dismiss"
+          onClick={() => { prefs.setAddFolderDismissed(); setDismissed(true); }}>{CloseIcon}</button>
+        <p className="ld-card__title">Your projects' drawings, here too</p>
+        <p className="ld-card__text">Localidraw can also edit the .excalidraw files in your projects. Add a folder from a terminal:</p>
+        <CopyCommand command={ADD_COMMAND} />
+      </div>
+    );
+  }
+  return open ? (
+    <div className="ld-add-hint">
+      <p className="ld-hint">Add a folder from a terminal, and it shows here:</p>
+      <CopyCommand command={ADD_COMMAND} />
+    </div>
+  ) : (
+    <button type="button" className="ld-link" onClick={() => setOpen(true)}>Add a folder</button>
   );
 }

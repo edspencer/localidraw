@@ -23,6 +23,17 @@ notes/                      ← you ran `localidraw notes`
         └── themes.excalidraw     → "research/interviews": themes
 ```
 
+Serving [the list of folders](/folders/) (`localidraw` with no folder), the sidebar is grouped by folder, **Scratch**
+first, then each folder you've added, by name. A folder's own canvases are right under its name, and its projects are
+smaller headers under that (`docs`, `research/interviews`). A folder that isn't there right now is greyed out and
+marked *missing* until it's back. The open canvas's URL starts with its folder's name
+(`?canvas=web-app/docs/architecture.excalidraw`).
+
+With no folders added yet, a card at the top says Localidraw can edit the drawings in your projects too, with the
+command to add one (`localidraw add ~/path/to/project`) and a button that copies it (or selects it, where the browser
+won't let a page copy). Dismiss it, and a small **Add a folder** link stays, which shows the same command. The page
+doesn't add folders itself: that's done from a terminal, so a page can never point Localidraw at a folder.
+
 Folders without canvases aren't listed, and nor are `node_modules` or dot-folders. The list follows the disk: a file
 added, renamed or deleted in your shell, by git or by an agent shows up (or goes) within a second.
 
@@ -37,7 +48,8 @@ in `web-app/`, and `arch` finds `architecture`.
 ## New canvas
 
 **New canvas** opens a field with a path to fill in, starting in the open canvas's folder with `untitled` selected, so
-typing replaces just the name. The **+** beside a project's header does the same in that project.
+typing replaces just the name. Serving the list, the path starts with a folder's name (`scratch/untitled`,
+`web-app/docs/deploy`), and with no canvas open it starts in Scratch. The **+** beside a project's header does the same in that project.
 
 - Type a path in the folder: `ideas`, or `web-app/deploy`, or `plans/2027/q1`. Folders are made as needed, and
   `.excalidraw` is added if you leave it off.
