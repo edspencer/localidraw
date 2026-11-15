@@ -102,6 +102,21 @@ export function listProjects(root: string): Project[] {
   return projects.sort((a, b) => a.dir.localeCompare(b.dir));
 }
 
+/**
+ * Whether there's a canvas under `root`, looking at no more than `limit` folders (so asking it of a home folder is
+ * quick): for `serve`'s hint about the current folder, where a wrong "no" costs nothing.
+ */
+export function hasCanvases(root: string, limit = 500): boolean {
+  const queue = [root];
+  for (let seen = 0; queue.length && seen < limit; seen++) {
+    let entries;
+    try { entries = readdirSync(queue.shift()!, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) if (e.isFile() && e.name.endsWith(".excalidraw") && !e.name.startsWith(".")) return true;
+    for (const e of entries) if (e.isDirectory() && !skipped(e.name)) queue.push(join(e.parentPath ?? (e as any).path, e.name));
+  }
+  return false;
+}
+
 /** Writes through a temporary file and a rename, so no reader ever sees half a canvas. */
 export function writeAtomic(abs: string, content: string) {
   mkdirSync(dirname(abs), { recursive: true });

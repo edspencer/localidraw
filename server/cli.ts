@@ -12,7 +12,9 @@ import { removeRuntimeFile, writeRuntimeFile } from "./contract/runtime-file.ts"
 import { startLogRotation } from "./contract/service/rotate.ts";
 import { serviceLogPath } from "./contract/service/spec.ts";
 import { DEFAULT_PORT, parsePort } from "./port.ts";
-import { listProjects } from "./files.ts";
+import { hasCanvases, listProjects } from "./files.ts";
+import { isThere, listedFolderHolding, readConfig, SCRATCH, scratchDir, type FolderEntry } from "./folders.ts";
+import { ADD_USAGE, FOLDERS_USAGE, REMOVE_USAGE, runFolders } from "./folders-cli.ts";
 import { localidrawHome, parseAllowedHosts, parsePoll, requireAllowedHost, safeHomeDir } from "./options.ts";
 import { pkg, pkgRoot, webDir } from "./package.ts";
 import { isLoopbackAddress } from "./security.ts";
@@ -22,12 +24,13 @@ import { parseUpdateArgs, runUpdateCommand, UPDATE_HELP, UPDATE_USAGE } from "./
 import { diagnose, doctorCode, DOCTOR_HELP, DOCTOR_USAGE, parseDoctorArgs, renderChecks } from "./doctor.ts";
 
 /** The command names, which win over a folder of the same name (SPEC §1): that folder is given as `./service`. */
-const COMMANDS = ["serve", "service", "update", "upgrade", "busy", "doctor"];
+const COMMANDS = ["serve", "add", "remove", "folders", "service", "update", "upgrade", "busy", "doctor"];
 
 /** How long a stop waits for the requests under way before it cuts them off. */
 const DRAIN_MS = 5000;
 
 const USAGE = `Usage: localidraw [serve] [folder] [--port <n>] [--open] [-q] [--host <addr> --allowed-host <name>…] [--poll [ms]]
+       localidraw add <folder> [--name <name>] · remove <name|folder> · folders   [--json]
        localidraw service install | uninstall | start | stop | restart | status | logs   (localidraw service --help)
        localidraw busy [--json]
        localidraw update [--check] [--to <version|tag>] [--yes] [--force] [--json]
@@ -47,17 +50,22 @@ It exits 0 when it isn't, 75 while a canvas or the Library is being written, and
 For scripts and Watchtower, before a restart. It finds the one running here through ~/.localidraw/runtime.json.
 `;
 
-const HELP = `localidraw ${pkg.version}: a local Excalidraw for the .excalidraw files in a folder
+const HELP = `localidraw ${pkg.version}: a local Excalidraw for the .excalidraw files on your machine
 
 Usage: localidraw [serve] [folder] [options]
 
-  serve             run it in the foreground, until Ctrl-C. It's the default: \`localidraw ~/notes\` is
-                    \`localidraw serve ~/notes\`.
-  folder            where the canvases are (default: the current folder). Each folder under it that
-                    holds .excalidraw files is a project; node_modules and dot-folders are skipped. A
-                    folder named like a command (serve, service, update, busy, doctor) is given as
+  serve             run it in the foreground, until Ctrl-C. It's the default: \`localidraw\` is
+                    \`localidraw serve\`.
+                    With no folder, it serves Scratch (~/.localidraw/drawings) and the folders you've
+                    added, and follows the list as it changes: no restart.
+  folder            serve this one folder alone instead: no list, no Scratch. Each folder under it
+                    that holds .excalidraw files is a project; node_modules and dot-folders are
+                    skipped. A folder named like a command (serve, add, service, …) is given as
                     ./service.
-  service <command> run it in the background from login on, serving one folder: install, uninstall,
+  add <folder>      list a folder, so its canvases show too. --name <name> (default: its own name).
+  remove <name>     take a folder off the list (its canvases stay where they are).
+  folders           the list: Scratch, then the folders you've added. --json.
+  service <command> run it in the background from login on, serving the list: install, uninstall,
                     start, stop, restart, status and logs. See \`localidraw service --help\`.
   busy [--json]     is it saving something right now? Exits 0 (no), 75 (yes) or 3 (not running).
   update            update it, and restart the service. --check says whether there's a newer version;
@@ -124,7 +132,7 @@ async function main(args: string[]): Promise<number | undefined> {
       command = a;
       if (command !== "serve") {
         if (i > 0) throw new UsageError(`\`${command}\` comes first: localidraw ${command === "service" ? "service <command>" : command} [options]`);
-        usage = { service: SERVICE_USAGE, busy: BUSY_USAGE, update: UPDATE_USAGE, upgrade: UPDATE_USAGE, doctor: DOCTOR_USAGE }[command]!;
+        usage = { service: SERVICE_USAGE, busy: BUSY_USAGE, update: UPDATE_USAGE, upgrade: UPDATE_USAGE, doctor: DOCTOR_USAGE, add: ADD_USAGE, remove: REMOVE_USAGE, folders: FOLDERS_USAGE }[command]!;
         return await runCommand(command, args.slice(1));
       }
     }
@@ -132,8 +140,10 @@ async function main(args: string[]): Promise<number | undefined> {
     else throw new UsageError(`one folder only (got ${folder} and ${a})`);
   }
 
-  const root = resolve(folder ?? ".");
-  if (!existsSync(root) || !statSync(root).isDirectory()) throw new UsageError(`${root} isn't a folder`);
+  // With a folder, that folder alone. Without, the list (~/.localidraw/config.json) and Scratch.
+  const root = folder === undefined ? undefined : resolve(folder);
+  if (root !== undefined && (!existsSync(root) || !statSync(root).isDirectory())) throw new UsageError(`${root} isn't a folder`);
+  const home = localidrawHome();
   const given = portArg ?? process.env.PORT;
   let port = DEFAULT_PORT;
   if (given !== undefined && given !== "") {
@@ -153,7 +163,7 @@ async function main(args: string[]): Promise<number | undefined> {
 
   let running;
   try {
-    running = await startServer({ root, port, webDir, host, allowedHosts, poll });
+    running = await startServer({ ...(root !== undefined ? { root } : { home }), port, webDir, host, allowedHosts, poll });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") return out.error(`port ${port} is in use: is Localidraw already running? (try --port)`);
     throw err;
@@ -162,7 +172,6 @@ async function main(args: string[]): Promise<number | undefined> {
   // ~/.localidraw/runtime.json (SPEC §4): how `localidraw busy` and `update` find this instance. 0600, written once
   // it's listening, and removed on a clean stop if it still names this process. Not being able to write it doesn't
   // stop it serving.
-  const home = localidrawHome();
   try {
     writeRuntimeFile(home, { pid: process.pid, port: Number(new URL(url).port), url, version: pkg.version });
   } catch (err) {
@@ -199,7 +208,19 @@ async function main(args: string[]): Promise<number | undefined> {
     process.channel.unref();
   }
 
-  const count = quiet ? 0 : listProjects(root).reduce((n, p) => n + p.canvases.length, 0);
+  const count = (dir: string) => listProjects(dir).reduce((n, p) => n + p.canvases.length, 0);
+  const canvases = (n: number) => `${n} canvas${n === 1 ? "" : "es"}`;
+  /** What it serves, a line each: the folder, or Scratch and the list. */
+  const serving: string[] = [];
+  if (!quiet && root !== undefined) serving.push(`  ${root} (${canvases(count(root))})`);
+  else if (!quiet) {
+    let listed: FolderEntry[] = [];
+    try { listed = readConfig(home).folders; } catch { /* the server has said why, on stderr */ }
+    const width = Math.max(SCRATCH.length, ...listed.map((f) => f.name.length));
+    const scratch = scratchDir(home);
+    serving.push(`  ${SCRATCH.padEnd(width)}  ${scratch} (${isThere(scratch) ? canvases(count(scratch)) : "nothing yet"})`);
+    for (const f of listed) serving.push(`  ${f.name.padEnd(width)}  ${f.path} (${isThere(f.path) ? canvases(count(f.path)) : "missing"})`);
+  }
   const local = isLoopbackAddress(host);
   // The banner is the first line on stdout (SPEC §3): nothing is written there before it. --quiet prints that line
   // alone; the warning that a hosted Localidraw has no login still goes out, on stderr.
@@ -209,13 +230,14 @@ async function main(args: string[]): Promise<number | undefined> {
     if (!local) process.stderr.write(`${noLogin.trim()}\n`);
   } else process.stdout.write([
     `Localidraw ${pkg.version}: ${url}`,
-    `  ${root} (${count} canvas${count === 1 ? "" : "es"})`,
+    ...serving,
     `  listening on ${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${port || new URL(url).port}${local ? " (this machine only)" : ""}`,
     `  answering to localhost${allowedHosts.map((h) => `, ${h}`).join("")}`,
     `  watching for changes ${poll ? `by checking the files every ${poll} ms` : "by file events"}`,
     ...(local ? [] : [noLogin]),
     "",
   ].join("\n"));
+  if (root === undefined) hintAboutHere(home);
 
   if (open) {
     // On Windows, rundll32's FileProtocolHandler hands the URL to the default browser, as `start` would, without a
@@ -226,8 +248,22 @@ async function main(args: string[]): Promise<number | undefined> {
   return undefined;
 }
 
+/**
+ * Serving the list from a folder that has canvases but isn't in it (someone ran `localidraw` in a project): say on
+ * stderr how to keep it, or how to open just it.
+ */
+function hintAboutHere(home: string) {
+  const here = process.cwd();
+  let listed: FolderEntry[];
+  try { listed = readConfig(home).folders; } catch { return; }
+  if (listedFolderHolding(listed, here) || listedFolderHolding([{ path: home, name: "" }], here)) return;
+  if (!hasCanvases(here)) return;
+  process.stderr.write(`This folder has canvases, but isn't in the list: \`localidraw add .\` keeps it there, and \`localidraw .\` opens just it.\n`);
+}
+
 /** `service`, `busy`, `update` (and `upgrade`, its hidden alias) and `doctor`, with the arguments after the name. */
 async function runCommand(command: string, rest: string[]): Promise<number> {
+  if (command === "add" || command === "remove" || command === "folders") return runFolders(command, rest, localidrawHome());
   const ctx = realContext(pkgRoot, safeHomeDir());
   if (command === "service") return runService(rest, ctx);
   if (command === "busy") {
