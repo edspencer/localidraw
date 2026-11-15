@@ -367,7 +367,8 @@ function mountFolders(opts: { root?: string; home?: string; poll?: number }, ann
   return {
     list: true as const,
     mounts: () => mounts,
-    warning: () => warning,
+    // For the page, where the full path would show someone's home folder: `~/.localidraw/config.json`, as the docs say.
+    warning: () => warning && (home.endsWith(`${sep}.localidraw`) ? warning.split(configFile).join("~/.localidraw/config.json") : warning),
     /** Looks now: after a canvas is made in Scratch, say, so it's watched from then on. */
     kick: check,
     close: () => { clearTimeout(timer); clearTimeout(soon); homeWatch?.close(); mounts.forEach(unwatchMount); },

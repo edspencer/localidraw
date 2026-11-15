@@ -23,6 +23,9 @@ export const prefs = {
   /** The Library, when the folder has no library.excalidrawlib to keep it in (web/library.ts). */
   library: () => read<unknown[]>("library", []),
   setLibrary: (items: unknown) => write("library", items),
+  /** The "your projects too" card, serving the list with no folders, once it's dismissed. */
+  addFolderDismissed: () => read("addFolderDismissed", false),
+  setAddFolderDismissed: () => write("addFolderDismissed", true),
   // Open on the Canvases tab the first time.
   openSidebar: () => read<AppState["openSidebar"]>("openSidebar", { name: "default", tab: "canvases" }),
   /** A canvas renamed or moved keeps its viewport. */
