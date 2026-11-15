@@ -12,6 +12,8 @@ const pathFromUrl = () => new URLSearchParams(location.search).get("canvas");
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [rootName, setRootName] = useState("");
+  /** Where a new canvas goes when no folder is chosen: Scratch, serving the list; the folder's top, serving one. */
+  const [newDir, setNewDir] = useState("");
   const [path, setPath] = useState<string | null>(pathFromUrl());
   const [offline, setOffline] = useState(false);
   const onDiskChange = useRef<(path: string | null, hash: string | null) => void>(() => {});
@@ -20,7 +22,8 @@ export function App() {
 
   const refresh = useCallback(async () => {
     const { root, projects } = await getProjects();
-    setRootName(root.split(/[\\/]/).filter(Boolean).pop() ?? root);
+    setRootName(root === null ? "Scratch" : root.split(/[\\/]/).filter(Boolean).pop() ?? root);
+    setNewDir(root === null ? "scratch/" : "");
     setProjects(projects);
     return projects;
   }, []);
@@ -139,7 +142,7 @@ export function App() {
 
   const trashProps = { trashed, onUndo: undo, onDismiss: () => setTrashed(null) };
   const tab = (
-    <CanvasesTab projects={projects} rootName={rootName} current={path} onOpen={(p) => open(p)} onCreate={create}
+    <CanvasesTab projects={projects} rootName={rootName} newDir={newDir} current={path} onOpen={(p) => open(p)} onCreate={create}
       onMove={move} onTrash={trash} {...trashProps} />
   );
   return (
@@ -148,21 +151,21 @@ export function App() {
       {path
         ? <CanvasView path={path} sidebar={tab} offline={offline} onDiskChange={(h) => { onDiskChange.current = h; }} control={(c) => { canvases.current = c; }}
             onMoved={(from, to) => { prefs.moveViewport(from, to); if (from === pathFromUrl()) open(to, true); }} />
-        : <EmptyFolder rootName={rootName} onCreate={create} {...trashProps} />}
+        : <EmptyFolder rootName={rootName} newDir={newDir} onCreate={create} {...trashProps} />}
     </div>
   );
 }
 
 /** A folder with no canvases yet: offer to make the first (or to bring back the one just deleted). */
-function EmptyFolder({ rootName, onCreate, trashed, onUndo, onDismiss }:
-  { rootName: string; onCreate: (path: string) => Promise<string | null> } & TrashProps) {
+function EmptyFolder({ rootName, newDir, onCreate, trashed, onUndo, onDismiss }:
+  { rootName: string; newDir: string; onCreate: (path: string) => Promise<string | null> } & TrashProps) {
   const [error, setError] = useState<string | null>(null);
   return (
     <Screen>
       <div className="Island ld-screen__island">
         <h1>No canvases in {rootName || "this folder"} yet</h1>
         <p>Localidraw shows the .excalidraw files under the folder it was started in.</p>
-        <button type="button" className="ld-row ld-row--primary" onClick={async () => setError(await onCreate("untitled"))}>
+        <button type="button" className="ld-row ld-row--primary" onClick={async () => setError(await onCreate(`${newDir}untitled`))}>
           Make the first one
         </button>
         {error && <p className="ld-hint ld-hint--error">{error}</p>}

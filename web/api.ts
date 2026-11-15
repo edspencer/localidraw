@@ -1,6 +1,11 @@
 // The server's API, as the page uses it.
 export type Canvas = { path: string; name: string };
-export type Project = { dir: string; canvases: Canvas[] };
+/** A project: a folder holding canvases. Serving the list, `dir` starts with its folder's name (`folder`). */
+export type Project = { dir: string; folder?: string; canvases: Canvas[] };
+/** A folder the Localidraw serving the list serves: Scratch first, then config.json's. */
+export type Folder = { name: string; path: string; scratch: boolean; missing: boolean };
+/** Serving one folder, `root` is it; serving the list, `root` is null and `folders` lists them. */
+export type Projects = { root: string | null; folders?: Folder[]; projects: Project[]; warning?: string };
 export type Scene = { elements: any[]; appState?: Record<string, unknown>; files?: Record<string, any> };
 export type Loaded = { hash: string; scene: Scene };
 
@@ -16,7 +21,7 @@ async function reply<T>(res: Response): Promise<T> {
 const post = <T,>(url: string, body: unknown) =>
   fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => reply<T>(r));
 
-export const getProjects = () => fetch("/api/projects").then((r) => reply<{ root: string; projects: Project[] }>(r));
+export const getProjects = () => fetch("/api/projects").then((r) => reply<Projects>(r));
 export const getCanvas = (path: string) => fetch(canvasUrl(path)).then((r) => reply<Loaded>(r));
 export const createCanvas = (path: string) => post<{ path: string }>("/api/canvases", { path });
 

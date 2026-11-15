@@ -402,9 +402,11 @@ const lib = (...ids: string[]) => JSON.stringify({ type: "excalidrawlib", versio
 
 test("the Library: none until the folder has library.excalidrawlib, and never made by a save", async () => {
   const file = join(root, "library.excalidrawlib");
-  assert.deepEqual((await call("GET", "/api/library")).json, { shared: false });
+  assert.deepEqual((await call("GET", "/api/library")).json, { shared: false, path: "library.excalidrawlib" });
   const put = await call("PUT", "/api/library", { body: lib("a"), headers: { "x-base-hash": "" } });
   assert.equal(put.status, 404);
+  // Only Localidraw's own Library (serving the list) is made by a save; a folder's never is.
+  assert.equal((await call("PUT", "/api/library", { body: lib("a"), headers: { "x-base-hash": "none" } })).status, 404);
   assert.equal(existsSync(file), false);
 
   writeFileSync(file, ""); // `touch library.excalidrawlib`

@@ -12,7 +12,10 @@ each section. Delete items as they land; keep the design notes until then.
 
 ## Folders: one Localidraw for drawings all over the machine
 
-Decided with Ed on 2026-11-15, being built for 0.9.0. Today a Localidraw, and so the service, serves exactly one
+Decided with Ed on 2026-11-15, being built for 0.9.0. **Built so far:** the server and the CLI (the config, `add`,
+`remove`, `folders`, serving the list plus Scratch, per-folder rules, watching the config, missing folders, the API's
+paths, the Library's API). **Still to build:** the page (grouped sidebar, the card and hint, the Library switching),
+then the service, `--open`, already-running, `doctor` and `status`. Today a Localidraw, and so the service, serves exactly one
 folder. Instead, one Localidraw (the service, or `npx localidraw`) serves a list of folders, plus a scratch folder for
 people who just want to draw. Nobody uses Localidraw yet, so this breaks what it likes: no migration.
 

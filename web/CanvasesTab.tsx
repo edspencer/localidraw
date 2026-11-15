@@ -12,6 +12,8 @@ export type TrashProps = { trashed: Trashed | null; onUndo: () => void; onDismis
 type Props = {
   projects: Project[];
   rootName: string;
+  /** Where a new canvas goes with none open: "" (the folder's top), or `scratch/` serving the list. */
+  newDir: string;
   current: string | null;
   onOpen: (path: string) => void;
   // Each of these resolves to an error message, or null once it's done.
@@ -23,7 +25,7 @@ type Props = {
 const withoutExt = (path: string) => path.replace(/\.excalidraw$/, "");
 const nameOf = (path: string) => withoutExt(path.split("/").pop() ?? path);
 
-export function CanvasesTab({ projects, rootName, current, onOpen, onCreate, onMove, onTrash, trashed, onUndo, onDismiss }: Props) {
+export function CanvasesTab({ projects, rootName, newDir, current, onOpen, onCreate, onMove, onTrash, trashed, onUndo, onDismiss }: Props) {
   const [filter, setFilter] = useState("");
   const [creating, setCreating] = useState<string | null>(null); // the suggested path while the field is open
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
@@ -33,7 +35,7 @@ export function CanvasesTab({ projects, rootName, current, onOpen, onCreate, onM
   const shown = projects
     .map((p) => ({ ...p, canvases: p.canvases.filter((c) => !needle || c.path.toLowerCase().includes(needle)) }))
     .filter((p) => p.canvases.length > 0);
-  const currentDir = current?.includes("/") ? current.slice(0, current.lastIndexOf("/") + 1) : "";
+  const currentDir = current?.includes("/") ? current.slice(0, current.lastIndexOf("/") + 1) : newDir;
 
   const row = (c: Canvas) => {
     if (renaming === c.path) {

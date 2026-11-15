@@ -49,6 +49,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Getting started', slug: 'getting-started' },
 						{ label: 'The Canvases sidebar', slug: 'canvases' },
+						{ label: 'Folders and Scratch', slug: 'folders' },
 						{ label: 'The Library', slug: 'library' },
 					],
 				},

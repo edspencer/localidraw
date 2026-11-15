@@ -14,8 +14,17 @@ For agents (and people) developing Localidraw itself.
   `writeAtomic` (a temporary file, then a rename). Don't add a write path around either. A save never puts back a
   canvas that's gone (410): the page follows a move, or says it was deleted and writes it again only when asked
   (`x-base-hash: none`, which is refused if a file is there by then).
+- **One folder, or the list.** `localidraw <folder>` (and the image) serves that folder alone, with canvas paths
+  relative to it. `localidraw` with no folder serves Scratch (`~/.localidraw/drawings`) and the folders in
+  `~/.localidraw/config.json` (`server/folders.ts`), and canvas paths start with the folder's name
+  (`notes/flow.excalidraw`): `locate` in `server/server.ts` splits one off, and the rest goes through the rules below,
+  per folder. The server watches `config.json` (`mountFolders`) and follows it without a restart; a config that
+  doesn't parse keeps the last good list. A listed folder that's gone is missing, never written to (a save there is a
+  410, so nothing makes a folder where a drive was unmounted), and comes back when it's there. A move between folders
+  is refused. `add`, `remove` and `folders` edit the file with `writeAtomic`, and need no server.
 - **Only canvases inside the folder.** Every path from the page goes through `resolveInRoot` in `server/files.ts`:
-  inside the root, not in a dot-folder or `node_modules`, and a `.excalidraw` file. The server creates, saves, renames
+  inside the root (the folder its path names, serving the list), not in a dot-folder or `node_modules`, and a
+  `.excalidraw` file. The server creates, saves, renames
   and moves canvases (and saves `<root>/library.excalidrawlib`, a fixed path, when it exists). A rename or move never
   replaces a file (`renameNoReplace`: a hard link, then removing the old name). **It never unlinks a canvas:** delete
   is a move into `<root>/.localidraw/trash/<timestamp>-<name>` (`moveToTrash`), which the sidebar can undo, and a
@@ -29,8 +38,8 @@ For agents (and people) developing Localidraw itself.
   the reverse proxy's job, and the docs and the startup output say so. Don't add a route around `guard`, a wildcard
   allowed host, or CORS headers.
 - **The CLI follows the [CLI contract](https://github.com/edspencer/cli-contract)** (SPEC 1.0) that Ed's local tools
-  share. `localidraw [serve] [folder]`: command names (`serve`, `service`, `update` with its hidden alias `upgrade`,
-  `busy`, `doctor`) win over a folder's, which is given as `./service`, and each comes first. A flag a command can't
+  share. `localidraw [serve] [folder]`: command names (`serve`, `add`, `remove`, `folders`, `service`, `update` with
+  its hidden alias `upgrade`, `busy`, `doctor`) win over a folder's, which is given as `./service`, and each comes first. A flag a command can't
   act on is a usage error, not dropped. Exit codes are the contract's (`server/contract/exit-codes.ts`): 1 for a
   failure such as a port in use, 2 for a usage error with the usage after the message, 3 and 4 for not running and
   not installed, 5 to 7 for `update`, 75 for busy. Set `process.exitCode` rather than calling `process.exit()`. `serve`'s first stdout line is
