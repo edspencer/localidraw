@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { contentHash } from "../server/files.ts";
 import { addFolder, defaultName, FolderError, parseConfig, readConfig, removeFolder } from "../server/folders.ts";
 import { startServer, type Running } from "../server/server.ts";
@@ -31,7 +31,7 @@ test("the config: names default to the basename, URL-safe, never scratch, and un
   assert.equal(defaultName("/a/My Notes!"), "My-Notes");
   assert.equal(defaultName("/a/..."), "folder");
   assert.deepEqual(parseConfig(""), { folders: [] });
-  assert.deepEqual(parseConfig(`{"folders":[{"path":"/x/notes"}]}`), { folders: [{ path: "/x/notes", name: "notes" }] });
+  assert.deepEqual(parseConfig(`{"folders":[{"path":"/x/notes"}]}`), { folders: [{ path: resolve("/x/notes"), name: "notes" }] });
   for (const bad of [`{`, `[]`, `{"folders":{}}`, `{"folders":[{"path":"rel"}]}`, `{"folders":[{"path":"/a","name":"Scratch"}]}`,
     `{"folders":[{"path":"/a","name":"a b"}]}`, `{"folders":[{"path":"/a/x"},{"path":"/b/x"}]}`]) {
     assert.throws(() => parseConfig(bad), Error, bad);
