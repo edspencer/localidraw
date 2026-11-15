@@ -1,5 +1,36 @@
 # localidraw
 
+## 0.9.0
+
+### Minor Changes
+
+- [#61](https://github.com/edspencer/localidraw/pull/61) [`c669ffd`](https://github.com/edspencer/localidraw/commit/c669ffdce1c0746a8ff42ec8c59692eb6434c6fa) Thanks [@edspencer](https://github.com/edspencer)! - **The page, serving the list of folders.** The Canvases sidebar is grouped by folder, Scratch first, with each
+  folder's projects as smaller headers; a folder that isn't there is greyed out as missing, and a `config.json` that
+  doesn't parse is reported at the top. A brand-new install opens on "Start drawing" (in Scratch), and with no folders
+  added a dismissable card gives the command to add one (`localidraw add ~/path/to/project`) with a copy button; after
+  that, a small "Add a folder" link. Serving the list, the Library is `~/.localidraw/library.excalidrawlib`, made on the
+  first change from the browser's Library, unless the open canvas's folder has its own.
+
+- [#59](https://github.com/edspencer/localidraw/pull/59) [`8f26a05`](https://github.com/edspencer/localidraw/commit/8f26a05d6a985e598a106e007c1454732f89f7e8) Thanks [@edspencer](https://github.com/edspencer)! - **One Localidraw for drawings all over your machine.** `localidraw` with no folder now serves Scratch
+  (`~/.localidraw/drawings`, made with its first canvas) and the folders listed in `~/.localidraw/config.json`, and
+  follows that file as it changes: no restart. `localidraw add <folder> [--name <n>]`, `localidraw remove <name|folder>`
+  and `localidraw folders [--json]` edit the list. A folder that's gone stays listed as missing and comes back when it's
+  there; a config that doesn't parse keeps the last good list. Canvas paths in the page and the API start with the
+  folder's name (`notes/flow.excalidraw`); each folder keeps its own trash and watcher, and a move between folders is
+  refused. `localidraw <folder>` serves that folder alone, as before. **Breaking:** `localidraw` with no folder no longer
+  serves the current folder; run `localidraw .` for that.
+
+- [#62](https://github.com/edspencer/localidraw/pull/62) [`d93f9d4`](https://github.com/edspencer/localidraw/commit/d93f9d47727a7d376bd75742e00eff82badb69aa) Thanks [@edspencer](https://github.com/edspencer)! - **The service serves Scratch and your folders.** `localidraw service install` takes no folder now: the service runs
+  `serve` with none, so it serves Scratch and the list, and `localidraw add <folder>` is all a new folder takes, with no
+  restart. A folder given to `install` is a usage error pointing at `localidraw add`. `service status` says how many
+  folders are listed (`folders` and `scratch` in `--json`, in place of `folder`). A service installed by 0.8 names one
+  folder: `status` warns, and `restart` (or `update`) writes it again without it; add that folder with `localidraw add`
+  to keep it. **`--open` (`-o`)** on `serve`, `service install` and `service start` opens the page once it answers.
+  `localidraw` with no folder, on a port a Localidraw serving the list holds already (the service, say), prints
+  `Localidraw is already running: <url>`, opens it with `--open`, and exits 0 instead of 1. **`doctor`** checks that
+  `~/.localidraw/config.json` parses and that every listed folder is there, and counts the file watches across Scratch
+  and every listed folder; it no longer looks at the current folder.
+
 ## 0.8.1
 
 ### Patch Changes
